@@ -1,0 +1,30 @@
+
+@echo off
+
+rem H is the destination game folder
+rem GAMEDIR is the name of the mod folder (usually the mod name)
+rem GAMEDATA is the name of the local GameData
+rem VERSIONFILE is the name of the version file, usually the same as GAMEDATA,
+rem    but not always
+
+set H=%KSPDIR%
+set GAMEDIR=%NAME%
+set GAMEDATA="GameData"
+set VERSIONFILE=%GAMEDIR%.version
+
+Print and pause to confirm the inputs
+echo Target Dir: %TGTDIR%
+echo Plugin: "%TGTDIR%%FILENAME%"
+echo PDB: "%TGTDIR%%NAME%.pdb"
+echo Destination: "%GAMEDATA%\%GAMEDIR%\Plugins\"
+
+pause
+
+rem Proceed with file copying
+
+xcopy /Y "%TGTDIR%%FILENAME%" %GAMEDATA%\%GAMEDIR%\Plugins\ /I
+xcopy /Y "%TGTDIR%%NAME%.pdb" %GAMEDATA%\%GAMEDIR%\Plugins\ /I
+
+copy /Y %VERSIONFILE% %GAMEDATA%\%GAMEDIR%
+
+xcopy /y /s /I %GAMEDATA%\%GAMEDIR% "%H%\GameData\%GAMEDIR%"
