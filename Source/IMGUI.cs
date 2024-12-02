@@ -1,63 +1,174 @@
-using FinePrint.Utilities;
+﻿using HarmonyLib;
 using KSP.Localization;
+using KSP.UI;
 using KSP.UI.Screens;
 using System;
 using System.Collections;
-using System.Reflection.Emit;
+using System.Reflection;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
 namespace LazySpawner
 {
+    [Settings(category = "UI")]
     [KSPAddon(KSPAddon.Startup.AllGameScenes, false)]
     public class IMGUI : MonoBehaviour
     {
-        private readonly string windowTitle = "Lazy Spawner";
+        // GUI.
+        private static string windowTitle;
+        public static int windowWidth = 400;
+        public static float fieldNameProportion = 0.5f; // 0.18f
+        public static int sectionSpacing = 10;
+
         private int windowID;
-        private static int windowWidth = 400;
         private Rect windowRect = new Rect(Screen.width * 0.04f, Screen.height * 0.1f, windowWidth, 0);
-        private static string craftURL = @"G:\Games\KSP_win64\saves\default\Ships\SPH\HKA Aegis II (Spartwo).craft";
         private bool drawGUI = false;
-        private static float fieldNameProportion = 0.18f;
+        private bool showSettings = false;
+        private Coroutine stockCraftBrowserSelection;
+        private ApplicationLauncherButton appLauncherButton;
 
-        public static double altitude = 0;
-        public static double inclination = 0;
-        public static double eccentricity = 0;
-        public static string bodyString = "Kerbin";
+        // Styles.
+        private static GUIStyle topButtonStyle;
+        private static GUIStyle boxStyle;
 
-        private static string rangeString = "0";
-        private static string countString = "1";
+        // Craft.
+        public static bool cloneActiveVessel = false;
+        public static string craftURL = @"G:\Games\KSP_win64\saves\default\Ships\SPH\HKA Aegis II (Spartwo).craft";
+        public readonly static TextField<int> countField = new TextField<int>("Count", "1", int.Parse);
 
-        private static bool cloneActiveVessel = false;
+        // Orbit.
+        public readonly static TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", t => FlightGlobals.Bodies.Find(b => b.bodyName.Equals(t, StringComparison.OrdinalIgnoreCase)));
+
+        // Nearby.
+        public readonly static TextField<float> rangeField = new TextField<float>("Within Range (m)", "100", float.Parse);
+
+        // Simple orbit.
+        public readonly static TextField<float> altitude = new TextField<float>("Altitude (km)", "70", s => float.Parse(s) * 1000);
+        public readonly static TextField<float> inclination = new TextField<float>("Inclination (°)", "0", float.Parse);
+
+        // Advanced orbit.
+        public readonly static TextField<float> sma = new TextField<float>("Semi-Major Axis (km)", "700", s => float.Parse(s) * 1000);
+        public readonly static TextField<float> eccentricity = new TextField<float>("Eccentricity (ratio)", "0", float.Parse);
+        public readonly static TextField<float> lan = new TextField<float>("Longitude of Ascending Node (°)", "0", float.Parse);
+        public readonly static TextField<float> argPe = new TextField<float>("Argument of Periapsis (°)", "0", float.Parse);
+        public readonly static TextField<float> mna = new TextField<float>("Mean Anomaly at Epoch (rad)", "0", float.Parse);
+        public readonly static TextField<float> epoch = new TextField<float>("Epoch (seconds)", "0", float.Parse);
+        public static bool advanced = false;
+
+        // Situation mode.
+        private string[] sitModeNames = new string[] { "Nearby", "Orbit" };
+        public enum SituationMode { Nearby, Orbit }
+        public SituationMode situationMode = SituationMode.Nearby;
+
+        // Rotation.
         private static bool randomRotation = false;
 
-        private string[] crewModeNames = new string[] { "None", "Pilot", "Fill Command", "Fill All" };
-        public Spawner.CrewMode crewMode = Spawner.CrewMode.Pilot;
-        public bool onlyNewHires = false;
+        // Crew.
+        private static readonly string[] crewModeNames = new string[] { "None", "Pilot", "Fill Command", "Fill All" };
+        public static Spawner.CrewMode crewMode = Spawner.CrewMode.Pilot;
+        public static bool onlyNewHires = false;
 
-        private Coroutine stockCraftBrowserSelection;
+        // Patch.
+        private static bool patchesApplied = false;
+
+        // Settings.
+        [Setting] public static bool showButton = true;
+        [Setting] public static bool useKeybind = true;
+        [Setting] public static KeyCode keybindModifier = KeyCode.LeftAlt;
+        [Setting] public static KeyCode keybind = KeyCode.F;
 
         protected void Start()
         {
             windowID = GUIUtility.GetControlID(FocusType.Passive);
+
+            Version version = Assembly.GetExecutingAssembly().GetName().Version;
+            windowTitle = $"Lazy Spawner v{version.Major}.{version.Minor}.{version.Build} by Halban";
+
+            if (!patchesApplied)
+            {
+                patchesApplied = true;
+                Harmony harmony = new Harmony("LazySpawner");
+                harmony.PatchAll();
+            }
+
+            AddToolbarButton();
+        }
+
+        private void InitStyles()
+        {
+            topButtonStyle = new GUIStyle(GUI.skin.GetStyle("Button"))
+            {
+                fontSize = 12,
+                alignment = TextAnchor.MiddleCenter,
+                clipping = TextClipping.Overflow
+            };
+
+            boxStyle = GUI.skin.box;
         }
 
         protected void Update()
         {
-            if (Input.GetKey(KeyCode.LeftAlt) && Input.GetKeyDown(KeyCode.F))
-                drawGUI = !drawGUI;
+            if (!useKeybind)
+                return;
+
+            if ((keybindModifier == KeyCode.None || Input.GetKey(keybindModifier)) && Input.GetKeyDown(keybind))
+            {
+                if (drawGUI)
+                    Close();
+                else
+                    Open();
+            }
+        }
+
+        protected void OnDestroy()
+        {
+            if (appLauncherButton)
+                ApplicationLauncher.Instance.RemoveModApplication(appLauncherButton);
+        }
+
+        private void Close()
+        {
+            GlobalSettings.Save();
+            drawGUI = false;
+
+            if (appLauncherButton && appLauncherButton.toggleButton.CurrentState == UIRadioButton.State.True)
+                appLauncherButton.SetFalse(false);
+        }
+
+        private void Open()
+        {
+            drawGUI = true;
+
+            if (appLauncherButton && appLauncherButton.toggleButton.CurrentState == UIRadioButton.State.False)
+                appLauncherButton.SetTrue(false);
         }
 
         protected void OnGUI()
         {
+            if (topButtonStyle == null)
+                InitStyles();
+
             if (drawGUI)
                 windowRect = GUILayout.Window(windowID, windowRect, FillWindow, windowTitle, GUILayout.Height(1), GUILayout.Width(windowWidth));
         }
 
-        private static int sectionSpacing = 10;
-
         private void FillWindow(int id)
         {
+            TopButtons();
+
+            if (showSettings)
+                SettingsSection();
+            else
+                MainSection();
+
+            // End window.
+            GUI.DragWindow(new Rect(0, 0, 10000, 500));
+        }
+
+        private void MainSection()
+        {
+            bool ready = true;
+
             // Divider.
             GUI.color = Color.grey;
             GUILayout.Label("<b>Craft:</b>");
@@ -73,16 +184,17 @@ namespace LazySpawner
                 GUILayout.Label("Craft URL: ", GUILayout.Width(windowWidth * fieldNameProportion));
                 craftURL = GUILayout.TextField(craftURL);
 
-                var select = "Select";
-                GUI.skin.button.CalcMinMaxWidth(new GUIContent(select), out float width, out float _);
-
-                if (GUILayout.Button(select, GUILayout.Width(width)) && stockCraftBrowserSelection == null)
+                string select = "Select";
+                GUI.skin.button.CalcMinMaxWidth(new GUIContent(select), out float selectWidth, out float _);
+                if (GUILayout.Button(select, GUILayout.Width(selectWidth)) && stockCraftBrowserSelection == null)
                     stockCraftBrowserSelection = StartCoroutine(StockCraftBrowserSelection());
 
                 GUILayout.EndHorizontal();
             }
 
             craftURL = craftURL.Trim('"');
+
+            countField.Draw(ref ready);
 
             // Divider.
             GUILayout.Space(sectionSpacing);
@@ -91,9 +203,50 @@ namespace LazySpawner
             GUI.color = Color.white;
 
             randomRotation = GUILayout.Toggle(randomRotation, "  Random Rotation");
-            TextFieldSetting("Range", ref rangeString);
-            TextFieldSetting("Count", ref countString);
-            TextFieldSetting("Body", ref bodyString);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Mode: ", GUILayout.Width(windowWidth * fieldNameProportion));
+            situationMode = (SituationMode)GUILayout.SelectionGrid((int)situationMode, sitModeNames, 2);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginVertical(boxStyle);
+
+            switch (situationMode)
+            {
+                case SituationMode.Nearby:
+
+                    rangeField.Draw(ref ready);
+
+                    break;
+                case SituationMode.Orbit:
+
+                    advanced = GUILayout.Toggle(advanced, "  Advanced");
+                    if (advanced)
+                    {
+                        body.Draw(ref ready);
+                        sma.Draw(ref ready);
+                        inclination.Draw(ref ready);
+                        eccentricity.Draw(ref ready);
+                        lan.Draw(ref ready);
+                        argPe.Draw(ref ready);
+                        mna.Draw(ref ready);
+                    }
+                    else
+                    {
+                        body.Draw(ref ready);
+                        altitude.Draw(ref ready);
+                        inclination.Draw(ref ready);
+                    }
+
+                    break;
+                //case SituationMode.Land:
+
+                //    body.Draw(ref ready);
+
+                //    break;
+            }
+
+            GUILayout.EndVertical();
 
             // Divider.
             GUILayout.Space(sectionSpacing);
@@ -112,22 +265,30 @@ namespace LazySpawner
             // Divider.
             GUILayout.Space(sectionSpacing);
 
+            if (!ready)
+                GUI.enabled = false;
+
             if (GUILayout.Button("Spawn"))
                 CallSpawn();
 
-            //SkipCraftThumbnails.enabled = GUILayout.Toggle(SkipCraftThumbnails.enabled, "Thumb Patch");
-            //LimitPlayerCraftListRebuilds.enabled = GUILayout.Toggle(LimitPlayerCraftListRebuilds.enabled, "Rebuild Limit");
-
-            // End window and release scroll lock.
-            GUI.DragWindow(new Rect(0, 0, 10000, 500));
+            GUI.enabled = true;
         }
 
-        private void TextFieldSetting(string label, ref string value)
+        private void TopButtons()
         {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(label + ": ", GUILayout.Width(windowWidth * fieldNameProportion));
-            value = GUILayout.TextField(value);
-            GUILayout.EndHorizontal();
+            // Close button.
+            if (GUI.Button(new Rect(windowRect.width - 18, 2, 16, 16), "x", topButtonStyle))
+                Close();
+
+            // Settings button.
+            if (GUI.Button(new Rect(windowRect.width - (18 * 2), 2, 16, 16), "s", topButtonStyle))
+                showSettings = !showSettings;
+        }
+
+        private void SettingsSection()
+        {
+            useKeybind = GUILayout.Toggle(useKeybind, $"Use Keybind ({keybindModifier} + {keybind})");
+            showButton = GUILayout.Toggle(showButton, "Show Toolbar Button (after next scene load)");
         }
 
         private void CallSpawn()
@@ -135,12 +296,12 @@ namespace LazySpawner
             if (!cloneActiveVessel && string.IsNullOrEmpty(craftURL) || cloneActiveVessel && FlightGlobals.ActiveVessel == null)
                 return;
 
-            float range = float.Parse(rangeString);
-            int count = int.Parse(countString);
+            float range = rangeField.value;
+            int count = countField.value;
 
             for (int i = 0; i < count; i++)
             {
-                Orbit orbit = HighLogic.LoadedSceneIsFlight && range > 0 ? NearbyOrbit(range) : GeneratedOrbit();
+                Orbit orbit = HighLogic.LoadedSceneIsFlight && situationMode == SituationMode.Nearby ? NearbyOrbit(range) : CreateOrbit();
                 if (orbit == null)
                     continue;
 
@@ -186,31 +347,40 @@ namespace LazySpawner
             return orbit;
         }
 
-        private Orbit GeneratedOrbit()
+        private Orbit CreateOrbit()
         {
-            string bodyLower = bodyString.ToLower();
-            CelestialBody body = FlightGlobals.Bodies.Find(b => b.bodyName.ToLower().Contains(bodyLower));
-            if (body == null)
-                return null;
-
-            int seed = new System.Random().Next();
-            return OrbitUtilities.GenerateOrbit(seed, body, OrbitType.EQUATORIAL, altitude, inclination, eccentricity);
+            if (advanced)
+                return new Orbit(inclination.value, eccentricity.value, sma.value, lan.value, argPe.value, mna.value, epoch.value, body.value);
+            else
+                return new Orbit(inclination.value, eccentricity.value, body.value.Radius + altitude.value, lan.value, argPe.value, mna.value, epoch.value, body.value);
         }
 
         private IEnumerator StockCraftBrowserSelection()
         {
             bool complete = false;
-            var craftBrowser = CraftBrowserDialog.Spawn(
-                EditorFacility.SPH, 
-                HighLogic.SaveFolder, 
-                (path, loadType) => { craftURL = path; complete = true; }, 
+            CraftBrowserDialog craftBrowser = CraftBrowserDialog.Spawn(
+                EditorFacility.SPH,
+                HighLogic.SaveFolder,
+                (path, loadType) => { craftURL = path; complete = true; },
                 () => complete = true, false);
-            
+
             while (!complete && craftBrowser != null && craftBrowser.gameObject.activeInHierarchy)
                 yield return null;
-            
+
             craftBrowser?.Dismiss();
             stockCraftBrowserSelection = null;
+        }
+
+        public void AddToolbarButton()
+        {
+            if (!showButton)
+                return;
+
+            if (appLauncherButton != null)
+                return;
+
+            Texture buttonTexture = GameDatabase.Instance.GetTexture("LazySpawner/Textures/icon", false);
+            appLauncherButton = ApplicationLauncher.Instance.AddModApplication(Open, Close, null, null, null, null, ApplicationLauncher.AppScenes.ALWAYS, buttonTexture);
         }
     }
 }
