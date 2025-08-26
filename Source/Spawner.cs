@@ -8,11 +8,21 @@ namespace LazySpawner
 {
     public static class Spawner
     {
+        //private static readonly Vessel.Situations[] landedSituation
+
         public struct SituationInfo
         {
-            public Orbit orbit;
-            public Quaternion rotation;
             public Vessel.Situations situation;
+            public Quaternion rotation;
+            public Orbit orbit;
+            public Coordinates coordinates;
+        }
+
+        public struct Coordinates
+        {
+            public double longitude;
+            public double latitude;
+            public double altitudeAGL;
         }
 
         public enum CrewMode
@@ -131,28 +141,52 @@ namespace LazySpawner
 
         private static void Place(ProtoVessel protoVessel, SituationInfo situationInfo)
         {
-            protoVessel.situation = Vessel.Situations.ORBITING;
-            protoVessel.orbitSnapShot = new OrbitSnapshot(situationInfo.orbit);
+            // Take a detached proto vessel and add it to the world, in the correct orientation and position.
+            // The result is an unloaded vessel that should load properly when it comes in range.
+
+            protoVessel.situation = situationInfo.situation;
 
             protoVessel.launchTime = Planetarium.GetUniversalTime();
             protoVessel.lastUT = Planetarium.GetUniversalTime();
-            protoVessel.splashed = false;
             protoVessel.missionTime = 0;
             protoVessel.distanceTraveled = 0;
             protoVessel.launchedFrom = "LaunchPad";
-            protoVessel.landedAt = "";
-            protoVessel.displaylandedAt = "";
-            protoVessel.landed = false;
 
             //Vector3d positionAtUT = vessel.orbit.getPositionAtUT(Planetarium.GetUniversalTime());
             //vessel.orbit.referenceBody.GetLatLonAlt(positionAtUT, out var lat, out var lon, out var alt);
 
-            protoVessel.latitude = 0; // lat
-            protoVessel.longitude = 0; // lon
-            protoVessel.altitude = 0; // alt
-            protoVessel.height = 0; // hgt, heightFromTerrain
-            protoVessel.normal = Vector3.up; // nrm, terrainNormal
-            //protoVessel.rotation = Quaternion.identity; // rot, srfRelRotation, might be confusing this with editor rotation above?
+            switch (situationInfo.situation)
+            {
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.SPLASHED:
+                case Vessel.Situations.FLYING:
+                    protoVessel.longitude = situationInfo.coordinates.longitude;
+                    protoVessel.latitude = situationInfo.coordinates.latitude;
+                    protoVessel.altitude = 0; // alt
+                    protoVessel.height = (float)situationInfo.coordinates.altitudeAGL; // hgt, heightFromTerrain
+                    protoVessel.normal = Vector3.up; // nrm, terrainNormal
+
+                    // Dummy orbit?
+                    protoVessel.orbitSnapShot = new OrbitSnapshot(situationInfo.orbit.referenceBody);
+
+                    if (situationInfo.situation == Vessel.Situations.SPLASHED)
+                    {
+                        protoVessel.splashed = true;
+                        protoVessel.landed = true;
+                    }
+                    else if (situationInfo.situation == Vessel.Situations.FLYING)
+                        protoVessel.landed = false;
+                    else
+                        protoVessel.landed = true;
+
+                    protoVessel.landedAt = "";
+                    protoVessel.displaylandedAt = "";
+
+                    break;
+                default:
+                    protoVessel.orbitSnapShot = new OrbitSnapshot(situationInfo.orbit);
+                    break;
+            }
 
             protoVessel.PQSminLevel = situationInfo.orbit.referenceBody.pqsController.minLevel; // body dependent, post-sit
             protoVessel.PQSmaxLevel = situationInfo.orbit.referenceBody.pqsController.maxLevel; // body dependent, post-sit
@@ -163,8 +197,51 @@ namespace LazySpawner
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
 
             // Set pos/rot.
-            protoVessel.vesselRef.SetRotation(situationInfo.rotation, false);
-            protoVessel.vesselRef.SetPosition(situationInfo.orbit.getPositionAtUT(Planetarium.GetUniversalTime()));
+            Vessel vessel = protoVessel.vesselRef;
+
+            switch (situationInfo.situation)
+            {
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.SPLASHED:
+                case Vessel.Situations.FLYING:
+                    //protoVessel.vesselRef.SetPosition(situationInfo.coordinates.longitude, situationInfo.coordinates.latitude, situationInfo.coordinates.altitudeAGL);
+
+                    CelestialBody body = situationInfo.orbit.referenceBody;
+                    Coordinates coords = situationInfo.coordinates;
+
+                    //Vector3d surfaceNVector = LatLon.GetSurfaceNVector(cf, vesselSituation.location.vesselGroundLocation.latitude, vesselSituation.location.vesselGroundLocation.longitude);
+
+                    double terrainHeight = body.TerrainAltitude(coords.latitude, coords.longitude);
+                    Vector3d position = body.GetRelSurfacePosition(coords.latitude, coords.longitude, terrainHeight + coords.altitudeAGL);
+                    vessel.SetPosition(position);
+
+                    Vector3d normalVector = body.GetSurfaceNVector(coords.latitude, coords.longitude);
+                    Vector3 forwards = Vector3.ProjectOnPlane(vessel.transform.forward, normalVector);
+                    var rot = Quaternion.LookRotation(forwards, normalVector);
+                    vessel.SetRotation(rot);
+
+                    protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * rot;
+                    vessel.srfRelRotation = protoVessel.rotation;
+
+                    // Add draw transform to dummy.
+                    vessel.gameObject.AddComponent<DrawTransform>();
+
+                    GameObject go = new GameObject();
+                    go.AddComponent<DrawTransform>();
+                    go.transform.position = body.GetWorldSurfacePosition(coords.latitude, coords.longitude, terrainHeight + coords.altitudeAGL);
+                    go.transform.rotation = rot;
+                    go.name = $"DrawTransform for {vessel.vesselName} at {coords.latitude} {coords.longitude} {coords.altitudeAGL}";
+
+                    //vessel.vesselSpawning = true; // ?
+                    vessel.PQSminLevel = 0;
+                    vessel.PQSmaxLevel = 0;
+
+                    break;
+                default:
+                    vessel.SetPosition(situationInfo.orbit.getPositionAtUT(Planetarium.GetUniversalTime()));
+                    vessel.SetRotation(situationInfo.rotation, false);
+                    break;
+            }
         }
 
         #endregion
@@ -267,7 +344,7 @@ namespace LazySpawner
                 if (isPassenger && crewMode != CrewMode.FillAll)
                     continue;
 
-                Debug.Log($"[LazySpawner]: {part.partInfo.title} has {part.partInfo.partPrefab.CrewCapacity} seats.");
+                UnityEngine.Debug.Log($"[LazySpawner]: {part.partInfo.title} has {part.partInfo.partPrefab.CrewCapacity} seats.");
                 protoVessel.crewedParts++;
 
                 // Put a crew member in each seat.
@@ -297,7 +374,7 @@ namespace LazySpawner
                     part.protoModuleCrew.Add(crewMember);
                     part.protoCrewNames.Add(crewMember.name);
 
-                    Debug.Log($"[LazySpawner]: {crewMember.name} has been assigned to {part.partInfo.title}.");
+                    UnityEngine.Debug.Log($"[LazySpawner]: {crewMember.name} has been assigned to {part.partInfo.title}.");
 
                     if (pilot && crewMode == CrewMode.Pilot)
                         break;

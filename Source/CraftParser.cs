@@ -132,8 +132,8 @@ namespace LazySpawner
                         uint.TryParse(value.value, out protoVessel.persistentId);
                         break;
                     case "rot":
-                        //protoVessel.rotation = KSPUtil.ParseQuaternion(value.value);
-                        protoVessel.rotation = Quaternion.identity;
+                        protoVessel.rotation = KSPUtil.ParseQuaternion(value.value);
+                        //protoVessel.rotation = Quaternion.identity;
                         break;
                     case "OverrideDefault":
                         ParseExtensions.TryParseBoolArray(value.value, out protoVessel.OverrideDefault);
@@ -266,14 +266,14 @@ namespace LazySpawner
                 // Parse parts sequentially.
                 ParsePartsSequential(missionFlag);
                 stopwatch.Stop();
-                Debug.Log($"Sequential parse took {stopwatch.Elapsed.Milliseconds:N3} ms.");
+                UnityEngine.Debug.Log($"Sequential parse took {stopwatch.Elapsed.Milliseconds:N3} ms.");
             }
             else
             {
                 // Parse parts in parallel.
                 ParsePartsParallel(missionFlag);
                 stopwatch.Stop();
-                Debug.Log($"Parallel parse took {stopwatch.Elapsed.Milliseconds:N3} ms.");
+                UnityEngine.Debug.Log($"Parallel parse took {stopwatch.Elapsed.Milliseconds:N3} ms.");
             }
 
             int highestPriority = int.MinValue;
@@ -345,7 +345,7 @@ namespace LazySpawner
             SortParts(rootPart, idLookupProto, sortedParts);
             protoVessel.rootIndex = 0;
 
-            Debug.Assert(idLookupCraftFile.Count == sortedParts.Count && sortedParts.Count == partsCraftFile.Count,
+            UnityEngine.Debug.Assert(idLookupCraftFile.Count == sortedParts.Count && sortedParts.Count == partsCraftFile.Count,
                 "[LazySpawner]: Critical error: the number of craft parts does not match the number of spawned parts.");
 
             // We now know the indices of the parts in the final sorted part list.

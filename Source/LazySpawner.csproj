@@ -97,6 +97,7 @@
     <Compile Include="CraftParser.cs" />
     <Compile Include="GlobalSettings.cs" />
     <Compile Include="IMGUI.cs" />
+    <Compile Include="DrawTransform.cs" />
     <Compile Include="PatchCraftBrowser.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\AssemblyVersion.cs">

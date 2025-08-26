@@ -63,10 +63,10 @@ namespace LazySpawner
             if (!Valid)
                 GUI.color = Color.white;
 
-            if (text != last)
+            if (text != last || value == null)
                 Valid = TryParse(out value) && value != null;
 
-            ready = ready && Valid;
+            ready = ready && Valid && value != null;
 
             GUILayout.EndHorizontal();
         }

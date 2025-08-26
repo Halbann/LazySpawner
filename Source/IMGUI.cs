@@ -33,7 +33,7 @@ namespace LazySpawner
 
         // Craft.
         public static bool cloneActiveVessel = false;
-        public static string craftURL = @"G:\Games\KSP_win64\saves\default\Ships\SPH\HKA Aegis II (Spartwo).craft";
+        public static string craftURL = @"G:\Games\KSP_win64\saves\default\Ships\SPH\Berserker.craft";
         public readonly static TextField<int> countField = new TextField<int>("Count", "1", int.Parse);
 
         // Orbit.
@@ -54,10 +54,16 @@ namespace LazySpawner
         public readonly static TextField<float> mna = new TextField<float>("Mean Anomaly at Epoch (rad)", "0", float.Parse);
         public readonly static TextField<float> epoch = new TextField<float>("Epoch (seconds)", "0", float.Parse);
         public static bool advanced = false;
+        
+        // Landed.
+
+        public readonly static TextField<float> longitude = new TextField<float>("Longitude (°)", "0", float.Parse);
+        public readonly static TextField<float> latitude = new TextField<float>("Latitude (°)", "-10", float.Parse);
+        public readonly static TextField<float> altitudeAGL = new TextField<float>("Altitude (m)", "0", float.Parse);
 
         // Situation mode.
-        private string[] sitModeNames = new string[] { "Nearby", "Orbit" };
-        public enum SituationMode { Nearby, Orbit }
+        private string[] sitModeNames = new string[] { "Nearby", "Orbit", "Landed" };
+        public enum SituationMode { Nearby, Orbit, Land }
         public SituationMode situationMode = SituationMode.Nearby;
 
         // Rotation.
@@ -206,7 +212,7 @@ namespace LazySpawner
 
             GUILayout.BeginHorizontal();
             GUILayout.Label("Mode: ", GUILayout.Width(windowWidth * fieldNameProportion));
-            situationMode = (SituationMode)GUILayout.SelectionGrid((int)situationMode, sitModeNames, 2);
+            situationMode = (SituationMode)GUILayout.SelectionGrid((int)situationMode, sitModeNames, sitModeNames.Length);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginVertical(boxStyle);
@@ -239,11 +245,14 @@ namespace LazySpawner
                     }
 
                     break;
-                //case SituationMode.Land:
+                case SituationMode.Land:
 
-                //    body.Draw(ref ready);
+                    body.Draw(ref ready);
+                    longitude.Draw(ref ready);
+                    latitude.Draw(ref ready);
+                    altitudeAGL.Draw(ref ready);
 
-                //    break;
+                    break;
             }
 
             GUILayout.EndVertical();
@@ -301,17 +310,43 @@ namespace LazySpawner
 
             for (int i = 0; i < count; i++)
             {
-                Orbit orbit = HighLogic.LoadedSceneIsFlight && situationMode == SituationMode.Nearby ? NearbyOrbit(range) : CreateOrbit();
-                if (orbit == null)
-                    continue;
+                Spawner.SituationInfo info = new Spawner.SituationInfo();
 
-                Spawner.SituationInfo info = new Spawner.SituationInfo()
+                switch (situationMode)
                 {
-                    orbit = orbit,
-                    rotation = !randomRotation ? Quaternion.identity : Quaternion.LookRotation(Random.onUnitSphere, Random.onUnitSphere),
-                    situation = Vessel.Situations.ORBITING
-                };
+                    case SituationMode.Nearby:
+                        switch (FlightGlobals.ActiveVessel.situation)
+                        {
+                            case Vessel.Situations.ORBITING:
+                            case Vessel.Situations.SUB_ORBITAL:
+                                info.situation = Vessel.Situations.ORBITING;
+                                info.orbit = NearbyOrbit(range);
+                                break;
+                            default:
+                                info.situation = Vessel.Situations.LANDED;
+                                break;
+                        }
 
+                        break;
+                    case SituationMode.Land:
+                        info.orbit = new Orbit(0, 0, 0, 0, 0, 0, 0, body.value);
+                        info.situation = Vessel.Situations.LANDED;
+                        info.coordinates = new Spawner.Coordinates
+                        {
+                            longitude = longitude.value,
+                            latitude = latitude.value,
+                            altitudeAGL = altitudeAGL.value,
+                        };
+
+                        break;
+                    default:
+                    case SituationMode.Orbit:
+                        info.orbit = CreateOrbit();
+                        info.situation = Vessel.Situations.ORBITING;
+                        break;
+                }
+
+                info.rotation = !randomRotation ? Quaternion.identity : Quaternion.LookRotation(Random.onUnitSphere, Random.onUnitSphere);
                 Spawner.onlyHireNewKerbals = onlyNewHires;
 
                 try
@@ -328,7 +363,7 @@ namespace LazySpawner
                 }
                 catch (Exception e)
                 {
-                    Debug.LogException(e);
+                    UnityEngine.Debug.LogException(e);
                     return;
                 }
             }
