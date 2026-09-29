@@ -21,13 +21,6 @@
 	<ItemGroup>
 		<Publicize Include="Assembly-CSharp" />
 	</ItemGroup>
-	<!-- Mod Dependencies -->
-	<ItemGroup>
-		<ModReference Include="0Harmony">
-			<DLLPath>GameData/000_Harmony/0Harmony.dll</DLLPath>
-			<CKANIdentifier>Harmony2</CKANIdentifier>
-		</ModReference>
-	</ItemGroup>
 	<!-- Version Files -->
 	<ItemGroup>
 		<KSPVersionFile Include="$(RepoRoot)LazySpawner.version">

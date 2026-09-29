@@ -1,443 +1,413 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using UnityEngine;
+using Random = UnityEngine.Random;
 
-namespace LazySpawner
+namespace LazySpawner;
+
+public enum CrewMode
 {
-    public static class Spawner
+    None,
+    Pilot,
+    FillCommand,
+    FillAll,
+}
+
+public struct CrewSettings
+{
+    public CrewMode mode;
+    public bool onlyNewKerbals;
+
+    public CrewSettings(CrewMode mode, bool onlyNewKerbals)
     {
-        //private static readonly Vessel.Situations[] landedSituation
+        this.mode = mode;
+        this.onlyNewKerbals = onlyNewKerbals;
+    }
+}
 
-        public struct SituationInfo
+// Stamps out copies of a VesselTemplate as new, unloaded vessels.
+// The vessels load normally when they come into range of the active vessel.
+public static class Spawner
+{
+    public static Vessel Spawn(VesselTemplate template, SpawnSituation situation, CrewSettings crew)
+    {
+        if (template == null)
+            throw new ArgumentNullException(nameof(template));
+
+        if (HighLogic.CurrentGame?.flightState == null || FlightGlobals.fetch == null)
+            throw new SpawnException("Vessels can only be spawned in flight or the tracking station.");
+
+        // Work on a copy so that the template can be used again.
+        ConfigNode node = template.node.CreateCopy();
+
+        Dictionary<uint, uint> changedPIDs = new Dictionary<uint, uint>();
+        bool keptReference = MakeUnique(node, changedPIDs);
+        UpdateRoboticsReferences(node, changedPIDs);
+
+        // The stock constructor registers the vessel's and parts' persistent IDs.
+        ProtoVessel protoVessel = new ProtoVessel(node, HighLogic.CurrentGame);
+
+        Populate(protoVessel, crew, situation);
+
+        // The control point depends on where the crew are.
+        if (!keptReference)
+            EstablishReferenceTransform(protoVessel);
+
+        Place(protoVessel, template, situation);
+
+        Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")}.");
+
+        return protoVessel.vesselRef;
+    }
+
+    #region Identity
+
+    // Give the vessel and its parts fresh identities, recording the persistent IDs that changed.
+    // Returns whether the vessel's reference transform part was found and kept.
+    private static bool MakeUnique(ConfigNode vesselNode, Dictionary<uint, uint> changedPIDs)
+    {
+        Game game = HighLogic.CurrentGame;
+        uint missionID = (uint)Guid.NewGuid().GetHashCode();
+        uint launchID = game.launchID++;
+        HashSet<uint> usedPIDs = new HashSet<uint>();
+
+        uint.TryParse(vesselNode.GetValue("ref"), out uint oldReference);
+        uint newReference = 0;
+
+        vesselNode.SetValue("pid", Guid.NewGuid().ToString("N"), true);
+        vesselNode.SetValue("persistentId", 0, true); // 0 means the ProtoVessel constructor assigns a new one.
+
+        foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
         {
-            public Vessel.Situations situation;
-            public Quaternion rotation;
-            public Orbit orbit;
-            public Coordinates coordinates;
+            uint.TryParse(partNode.GetValue("uid"), out uint oldFlightID);
+            uint flightID = ShipConstruction.GetUniqueFlightID(game.flightState);
+
+            if (oldReference != 0 && oldFlightID == oldReference && newReference == 0)
+                newReference = flightID;
+
+            partNode.SetValue("uid", flightID, true);
+            partNode.SetValue("mid", missionID, true);
+            partNode.SetValue("launchID", launchID, true);
+
+            // Always get a new PID. If the part had a PID before, store the change.
+            uint.TryParse(partNode.GetValue("persistentId"), out uint oldPID);
+            uint newPID;
+            do newPID = FlightGlobals.GetUniquepersistentId();
+            while (!usedPIDs.Add(newPID));
+
+            partNode.SetValue("persistentId", newPID, true);
+            if (oldPID != 0 && !changedPIDs.ContainsKey(oldPID))
+                changedPIDs.Add(oldPID, newPID);
+
+            // Crew are added separately. Cloned crew would be in two places at once.
+            partNode.RemoveValues("crew");
         }
 
-        public struct Coordinates
+        vesselNode.SetValue("ref", newReference, true);
+
+        return newReference != 0;
+    }
+
+    #endregion
+
+    #region Robotics
+
+    // Robotics controllers reference the parts they control by persistent ID.
+    private static void UpdateRoboticsReferences(ConfigNode vesselNode, Dictionary<uint, uint> changedPIDs)
+    {
+        if (changedPIDs.Count < 1)
+            return;
+
+        foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
         {
-            public double longitude;
-            public double latitude;
-            public double altitudeAGL;
-        }
-
-        public enum CrewMode
-        {
-            None,
-            Pilot,
-            FillCommand,
-            FillAll,
-        }
-
-        // Perhaps this should actually be an explicit argument if this is going to be reusable.
-        public static bool onlyHireNewKerbals = true;
-
-        // Multi-spawn that takes care of memory better than repeated calls to Spawn.
-        public static Vessel[] Spawn()
-        {
-            return null;
-        }
-
-        public static Vessel Spawn(string craftURL, SituationInfo situationInfo, CrewMode crewMode)
-        {
-            if (!File.Exists(craftURL))
-                return null;
-
-            // Parse craft file.
-            ConfigNode craftNode = ConfigNode.Load(craftURL);
-            if (craftNode == null)
-                return null;
-
-            // Create a proto vessel.
-            CraftParser parser = new CraftParser();
-            ProtoVessel protoVessel = parser.Parse(craftNode);
-            Vessel vessel = Spawn(protoVessel, situationInfo, crewMode);
-
-            parser.EstablishReferenceTransform(protoVessel); // Needs to be done after Spawn because it depends on crew.
-
-            return vessel;
-        }
-
-        public static Vessel Spawn(Vessel original, SituationInfo situationInfo, CrewMode crewMode)
-        {
-            if (original == null)
-                return null;
-
-            return Spawn(VesselToProtoVessel(original), situationInfo, crewMode);
-        }
-
-        public static Vessel Spawn(ProtoVessel protoVessel, SituationInfo situationInfo, CrewMode crewMode)
-        {
-            if (protoVessel == null)
-                return null;
-
-            // need to scrub Ids from existing protovessels.
-
-            Dictionary<uint, uint> changedPIDs = new Dictionary<uint, uint>();
-
-            MakeUnique(protoVessel, changedPIDs);
-            UpdateRoboticsReferences(protoVessel, changedPIDs);
-            Populate(protoVessel, crewMode, situationInfo);
-
-            Place(protoVessel, situationInfo);
-
-            return protoVessel.vesselRef;
-        }
-
-        #region ProtoVessel
-
-        private static ProtoVessel VesselToProtoVessel(Vessel vessel)
-        {
-            vessel.isBackingUp = true; // isBackingUp must be true for modules to be serialised.
-            ProtoVessel oldProto = vessel.protoVessel;
-            ProtoVessel proto = new ProtoVessel(vessel);
-            vessel.protoVessel = oldProto; // Undo automatic re-assignment in ProtoVessel constructor.
-            vessel.isBackingUp = false;
-
-            // Make doubly sure that our new protovessel is no longer associated with the original vessel.
-            proto.vesselRef = null;
-            foreach (ProtoPartSnapshot part in proto.protoPartSnapshots)
-                part.partRef = null;
-
-            return proto;
-        }
-
-        private static void MakeUnique(ProtoVessel protoVessel, Dictionary<uint, uint> changedPIDs)
-        {
-            protoVessel.vesselID = Guid.NewGuid(); // pid
-            //protoVessel.persistentId = FlightGlobals.GetUniquepersistentId();
-            protoVessel.persistentId = FlightGlobals.CheckVesselpersistentId(protoVessel.persistentId, null, false, true);
-
-            Game game = HighLogic.CurrentGame;
-            uint mid = (uint)Guid.NewGuid().GetHashCode(); // mid
-            uint launchId = game.launchID++;
-            bool refFound = false;
-
-            foreach (ProtoPartSnapshot snapshot in protoVessel.protoPartSnapshots)
+            foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
             {
-                snapshot.missionID = mid; // mid
-                snapshot.launchID = launchId;
+                if (moduleNode.GetValue("name") != "ModuleRoboticController")
+                    continue;
 
-                if (!refFound && snapshot.flightID != 0 && snapshot.flightID == protoVessel.refTransform)
+                foreach (string listName in new[] { "CONTROLLEDAXES", "CONTROLLEDACTIONS" })
                 {
-                    refFound = true;
-                    protoVessel.refTransform = snapshot.flightID = ShipConstruction.GetUniqueFlightID(game.flightState); // uid
-                }
-                else
-                    snapshot.flightID = ShipConstruction.GetUniqueFlightID(game.flightState); // uid    
-
-                // Always get a new PID. If the part had a PID before, store the change.
-
-                uint originalPID = snapshot.persistentId;
-                snapshot.persistentId = FlightGlobals.GetUniquepersistentId();
-                if (originalPID != default)
-                    changedPIDs.Add(originalPID, snapshot.persistentId);
-            }
-        }
-
-        private static void Place(ProtoVessel protoVessel, SituationInfo situationInfo)
-        {
-            // Take a detached proto vessel and add it to the world, in the correct orientation and position.
-            // The result is an unloaded vessel that should load properly when it comes in range.
-
-            protoVessel.situation = situationInfo.situation;
-
-            protoVessel.launchTime = Planetarium.GetUniversalTime();
-            protoVessel.lastUT = Planetarium.GetUniversalTime();
-            protoVessel.missionTime = 0;
-            protoVessel.distanceTraveled = 0;
-            protoVessel.launchedFrom = "LaunchPad";
-
-            //Vector3d positionAtUT = vessel.orbit.getPositionAtUT(Planetarium.GetUniversalTime());
-            //vessel.orbit.referenceBody.GetLatLonAlt(positionAtUT, out var lat, out var lon, out var alt);
-
-            switch (situationInfo.situation)
-            {
-                case Vessel.Situations.LANDED:
-                case Vessel.Situations.SPLASHED:
-                case Vessel.Situations.FLYING:
-                    protoVessel.longitude = situationInfo.coordinates.longitude;
-                    protoVessel.latitude = situationInfo.coordinates.latitude;
-                    protoVessel.altitude = 0; // alt
-                    protoVessel.height = (float)situationInfo.coordinates.altitudeAGL; // hgt, heightFromTerrain
-                    protoVessel.normal = Vector3.up; // nrm, terrainNormal
-
-                    // Dummy orbit?
-                    protoVessel.orbitSnapShot = new OrbitSnapshot(situationInfo.orbit.referenceBody);
-
-                    if (situationInfo.situation == Vessel.Situations.SPLASHED)
-                    {
-                        protoVessel.splashed = true;
-                        protoVessel.landed = true;
-                    }
-                    else if (situationInfo.situation == Vessel.Situations.FLYING)
-                        protoVessel.landed = false;
-                    else
-                        protoVessel.landed = true;
-
-                    protoVessel.landedAt = "";
-                    protoVessel.displaylandedAt = "";
-
-                    break;
-                default:
-                    protoVessel.orbitSnapShot = new OrbitSnapshot(situationInfo.orbit);
-                    break;
-            }
-
-            protoVessel.PQSminLevel = situationInfo.orbit.referenceBody.pqsController.minLevel; // body dependent, post-sit
-            protoVessel.PQSmaxLevel = situationInfo.orbit.referenceBody.pqsController.maxLevel; // body dependent, post-sit
-
-            // Load.
-            HighLogic.CurrentGame.flightState.protoVessels.Add(protoVessel);
-            protoVessel.Load(HighLogic.CurrentGame.flightState);
-            GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
-
-            // Set pos/rot.
-            Vessel vessel = protoVessel.vesselRef;
-
-            switch (situationInfo.situation)
-            {
-                case Vessel.Situations.LANDED:
-                case Vessel.Situations.SPLASHED:
-                case Vessel.Situations.FLYING:
-                    //protoVessel.vesselRef.SetPosition(situationInfo.coordinates.longitude, situationInfo.coordinates.latitude, situationInfo.coordinates.altitudeAGL);
-
-                    CelestialBody body = situationInfo.orbit.referenceBody;
-                    Coordinates coords = situationInfo.coordinates;
-
-                    //Vector3d surfaceNVector = LatLon.GetSurfaceNVector(cf, vesselSituation.location.vesselGroundLocation.latitude, vesselSituation.location.vesselGroundLocation.longitude);
-
-                    double terrainHeight = body.TerrainAltitude(coords.latitude, coords.longitude);
-                    Vector3d position = body.GetRelSurfacePosition(coords.latitude, coords.longitude, terrainHeight + coords.altitudeAGL);
-                    vessel.SetPosition(position);
-
-                    Vector3d normalVector = body.GetSurfaceNVector(coords.latitude, coords.longitude);
-                    Vector3 forwards = Vector3.ProjectOnPlane(vessel.transform.forward, normalVector);
-                    var rot = Quaternion.LookRotation(forwards, normalVector);
-                    vessel.SetRotation(rot);
-
-                    protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * rot;
-                    vessel.srfRelRotation = protoVessel.rotation;
-
-                    // Add draw transform to dummy.
-                    vessel.gameObject.AddComponent<DrawTransform>();
-
-                    GameObject go = new GameObject();
-                    go.AddComponent<DrawTransform>();
-                    go.transform.position = body.GetWorldSurfacePosition(coords.latitude, coords.longitude, terrainHeight + coords.altitudeAGL);
-                    go.transform.rotation = rot;
-                    go.name = $"DrawTransform for {vessel.vesselName} at {coords.latitude} {coords.longitude} {coords.altitudeAGL}";
-
-                    //vessel.vesselSpawning = true; // ?
-                    vessel.PQSminLevel = 0;
-                    vessel.PQSmaxLevel = 0;
-
-                    break;
-                default:
-                    vessel.SetPosition(situationInfo.orbit.getPositionAtUT(Planetarium.GetUniversalTime()));
-                    vessel.SetRotation(situationInfo.rotation, false);
-                    break;
-            }
-        }
-
-        #endregion
-
-        #region Robotics
-
-        private static void UpdateRoboticsReferences(ProtoVessel protoVessel, Dictionary<uint, uint> changedPIDs)
-        {
-            if (protoVessel == null || changedPIDs.Count < 1)
-                return;
-
-            ConfigNode symmetryNode = default;
-
-            foreach (ProtoPartSnapshot part in protoVessel.protoPartSnapshots)
-            {
-                foreach (ProtoPartModuleSnapshot module in part.modules)
-                {
-                    if (module.moduleName != "ModuleRoboticController")
+                    ConfigNode list = moduleNode.GetNode(listName);
+                    if (list == null)
                         continue;
 
-                    bool foundAxes = false;
-                    bool foundActions = false;
-
-                    foreach (ConfigNode node in module.moduleValues.nodes)
+                    foreach (ConfigNode actionOrAxis in list.nodes)
                     {
-                        bool check = (!foundAxes && (foundAxes = node.name == "CONTROLLEDAXES"))
-                            || (!foundActions && (foundActions = node.name == "CONTROLLEDACTIONS"));
+                        UpdatePidValue(actionOrAxis.values.Cast<ConfigNode.Value>().FirstOrDefault(v => v.name == "persistentId"), changedPIDs);
 
-                        if (!check)
+                        ConfigNode symmetryNode = actionOrAxis.GetNode("SYMPARTS");
+                        if (symmetryNode == null)
                             continue;
 
-                        foreach (ConfigNode actionOrAxis in node.nodes)
-                        {
-                            UpdatePidField(actionOrAxis, "persistentId", changedPIDs);
-
-                            if (!actionOrAxis.TryGetNode("SYMPARTS", ref symmetryNode))
-                                continue;
-
-                            foreach (ConfigNode.Value entry in symmetryNode.values)
-                                UpdatePidField(symmetryNode, "symPersistentId", entry.value, changedPIDs);
-                        }
-
-                        if (foundAxes && foundActions)
-                            break;
+                        foreach (ConfigNode.Value entry in symmetryNode.values)
+                            if (entry.name == "symPersistentId")
+                                UpdatePidValue(entry, changedPIDs);
                     }
-
-                    break;
                 }
             }
         }
+    }
 
-        private static void UpdatePidField(ConfigNode node, string name, Dictionary<uint, uint> changedPIDs)
+    private static void UpdatePidValue(ConfigNode.Value value, Dictionary<uint, uint> changedPIDs)
+    {
+        if (value != null && uint.TryParse(value.value, out uint originalPID) && changedPIDs.TryGetValue(originalPID, out uint newPID))
+            value.value = newPID.ToString();
+    }
+
+    #endregion
+
+    #region Placement
+
+    // Take a detached proto vessel and add it to the world, in the correct orientation and position.
+    // The result is an unloaded vessel that loads properly when it comes in range.
+    private static void Place(ProtoVessel protoVessel, VesselTemplate template, SpawnSituation situation)
+    {
+        CelestialBody body = situation.body;
+        double UT = Planetarium.GetUniversalTime();
+
+        protoVessel.launchTime = UT;
+        protoVessel.lastUT = UT;
+        protoVessel.missionTime = 0;
+        protoVessel.distanceTraveled = 0;
+        protoVessel.launchedFrom = "";
+        protoVessel.landedAt = "";
+        protoVessel.displaylandedAt = "";
+        protoVessel.PQSminLevel = 0;
+        protoVessel.PQSmaxLevel = 0;
+        protoVessel.skipGroundPositioningForDroppedPart = false;
+
+        Quaternion referenceRelative = ReferencePart(protoVessel)?.rotation ?? Quaternion.identity;
+        Quaternion worldRotation;
+
+        if (situation.landed)
         {
-            string originalString = default;
+            double terrain = body.TerrainAltitude(situation.latitude, situation.longitude, allowNegative: true);
+            bool splashed = body.ocean && terrain < 0;
 
-            if (node.TryGetValue(name, ref originalString))
-                UpdatePidField(node, name, originalString, changedPIDs);
+            Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
+            worldRotation = FaceHeading(frame * template.uprightRotation, referenceRelative, frame);
+
+            // Lift the vessel so its lowest part clears the ground. KSP puts it down properly
+            // when it goes off rails, but it should look right before then too.
+            Quaternion upright = Quaternion.Inverse(frame) * worldRotation;
+            float heightAboveBottom = template.HeightAboveBottom(upright);
+            double altitude = (splashed ? 0 : terrain) + heightAboveBottom + (splashed ? 0.5 : 1.5);
+
+            protoVessel.latitude = situation.latitude;
+            protoVessel.longitude = situation.longitude;
+            protoVessel.altitude = altitude;
+            protoVessel.height = (float)(altitude - Math.Max(terrain, 0));
+            protoVessel.normal = Quaternion.Inverse(worldRotation) * body.GetSurfaceNVector(situation.latitude, situation.longitude);
+
+            protoVessel.situation = splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
+            protoVessel.landed = !splashed;
+            protoVessel.splashed = splashed;
+            protoVessel.skipGroundPositioning = splashed;
+            protoVessel.vesselSpawning = true;
+
+            // Landed vessels still have an orbit, which is just the ground moving under them.
+            Vector3d position = body.GetWorldSurfacePosition(situation.latitude, situation.longitude, altitude);
+            Orbit orbit = Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT);
+            protoVessel.orbitSnapShot = new OrbitSnapshot(orbit);
         }
-
-        private static void UpdatePidField(ConfigNode node, string name, string originalString, Dictionary<uint, uint> changedPIDs)
+        else
         {
-            if (uint.TryParse(originalString, out uint originalPID) && changedPIDs.TryGetValue(originalPID, out uint newPID))
-                node.SetValue(name, newPID.ToString());
-        }
+            Orbit orbit = situation.orbit;
+            Vector3d position = orbit.getPositionAtUT(UT);
+            body.GetLatLonAlt(position, out protoVessel.latitude, out protoVessel.longitude, out protoVessel.altitude);
 
-        #endregion
-
-        #region Crew
-
-        private static void Populate(ProtoVessel protoVessel, CrewMode crewMode, SituationInfo situationInfo)
-        {
-            if (crewMode == CrewMode.None)
-                return;
-
-            double UT = Planetarium.GetUniversalTime();
-            protoVessel.crewedParts = 0;
-            protoVessel.crewableParts = 0;
-            KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
-            HashSet<string> originalRoster = roster.kerbals.Keys.ToHashSet();
-            ProtoCrewMember.KerbalType crewType = ProtoCrewMember.KerbalType.Crew;
-
-            // Because the parts are sorted in top down order, the first
-            // part with crew capacity we come across should be the reference transform.
-
-            foreach (ProtoPartSnapshot part in protoVessel.protoPartSnapshots)
+            worldRotation = situation.orbitRotation switch
             {
-                // Skip non-crew parts.
-                int capacity = part.partInfo.partPrefab.CrewCapacity;
-                if (capacity < 1)
-                    continue;
+                OrbitRotation.Random => Random.rotation,
+                OrbitRotation.Fixed => situation.worldRotation,
+                _ => Placement.Prograde(orbit, UT, referenceRelative),
+            };
 
-                protoVessel.crewableParts++;
+            protoVessel.height = -1;
+            protoVessel.normal = Vector3.up;
+            protoVessel.situation = Placement.OrbitSituation(orbit);
+            protoVessel.landed = false;
+            protoVessel.splashed = false;
+            protoVessel.skipGroundPositioning = false;
+            protoVessel.vesselSpawning = false;
+            protoVessel.orbitSnapShot = new OrbitSnapshot(orbit);
+        }
 
-                // Skip after filling one command seat if Pilot mode, but continue counting crewable parts.
-                if (protoVessel.crewedParts > 0 && crewMode == CrewMode.Pilot)
-                    continue;
+        // Unloaded vessels keep their rotation relative to the body.
+        protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * worldRotation;
 
-                // Skip passenger parts if we're not filling all seats.
-                bool isPassenger = !part.partInfo.partPrefab.HasModuleImplementing<ModuleCommand>();
-                if (isPassenger && crewMode != CrewMode.FillAll)
-                    continue;
+        // Add to the game. Load creates the (unloaded) vessel.
+        HighLogic.CurrentGame.flightState.protoVessels.Add(protoVessel);
+        protoVessel.Load(HighLogic.CurrentGame.flightState);
 
-                UnityEngine.Debug.Log($"[LazySpawner]: {part.partInfo.title} has {part.partInfo.partPrefab.CrewCapacity} seats.");
-                protoVessel.crewedParts++;
+        if (protoVessel.vesselRef != null)
+            GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
+    }
 
-                // Put a crew member in each seat.
-                for (int i = 0; i < capacity; i++)
-                {
-                    ProtoCrewMember crewMember;
-                    bool pilot = protoVessel.crewedParts == 1 && i == 0;
+    // Turn a vessel about the local vertical so that its nose points along the frame's heading.
+    // Vessels that point straight up, like rockets, are left alone.
+    private static Quaternion FaceHeading(Quaternion worldRotation, Quaternion referenceRelative, Quaternion frame)
+    {
+        Vector3 up = frame * Vector3.up;
+        Vector3 nose = worldRotation * referenceRelative * Vector3.up;
+        Vector3 horizontal = Vector3.ProjectOnPlane(nose, up);
 
-                    // The very first crew member should always be a pilot.
-                    if (pilot)
-                        crewMember = GetAvailableCrewWithTrait(onlyHireNewKerbals, KerbalRoster.pilotTrait);
-                    else
-                        crewMember = onlyHireNewKerbals ? roster.GetNewKerbal(crewType) : roster.GetNextOrNewKerbal(crewType);
+        if (horizontal.magnitude < 0.5f)
+            return worldRotation;
 
-                    // Set any newly hired kerbals to max level, but don't mess with already existing kerbals.
-                    if (!originalRoster.Contains(crewMember.name))
-                    {
-                        KerbalRoster.SetExperienceLevel(crewMember, KerbalRoster.GetExperienceMaxLevel());
-                        crewMember.UTaR = UT + (double)(UnityEngine.Random.Range(1f, 3f) * 86400f);
-                    }
+        float angle = Vector3.SignedAngle(horizontal, frame * Vector3.forward, up);
+        return Quaternion.AngleAxis(angle, up) * worldRotation;
+    }
 
-                    crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                    crewMember.seatIdx = i;
-                    CreateLogEntry(crewMember, situationInfo);
+    private static ProtoPartSnapshot ReferencePart(ProtoVessel protoVessel)
+    {
+        foreach (ProtoPartSnapshot snapshot in protoVessel.protoPartSnapshots)
+            if (snapshot.flightID == protoVessel.refTransform)
+                return snapshot;
 
-                    protoVessel.crew.Add(crewMember);
-                    part.protoModuleCrew.Add(crewMember);
-                    part.protoCrewNames.Add(crewMember.name);
+        return protoVessel.protoPartSnapshots.Count > 0 ? protoVessel.protoPartSnapshots[protoVessel.rootIndex] : null;
+    }
 
-                    UnityEngine.Debug.Log($"[LazySpawner]: {crewMember.name} has been assigned to {part.partInfo.title}.");
+    #endregion
 
-                    if (pilot && crewMode == CrewMode.Pilot)
-                        break;
-                }
+    #region Control
+
+    // The same rules as launching: the root part if it can control the vessel,
+    // otherwise the first crewed control part, then the first control part, then the root.
+    private static void EstablishReferenceTransform(ProtoVessel protoVessel)
+    {
+        List<ProtoPartSnapshot> snapshots = protoVessel.protoPartSnapshots;
+        ProtoPartSnapshot root = snapshots[protoVessel.rootIndex];
+        ProtoPartSnapshot controlPart;
+
+        if (IsControlSource(root))
+            controlPart = root;
+        else
+        {
+            // The snapshots are in top-down tree order, which is the same order the stock game searches in.
+            controlPart = snapshots.FirstOrDefault(s => IsControlSource(s) && s.partPrefab.CrewCapacity > 0 && s.protoModuleCrew.Count > 0)
+                ?? snapshots.FirstOrDefault(IsControlSource)
+                ?? root;
+        }
+
+        protoVessel.refTransform = controlPart.flightID;
+    }
+
+    private static bool IsControlSource(ProtoPartSnapshot snapshot) =>
+        snapshot.partPrefab != null && snapshot.partPrefab.isControlSource > Vessel.ControlLevel.NONE;
+
+    #endregion
+
+    #region Crew
+
+    private static void Populate(ProtoVessel protoVessel, CrewSettings settings, SpawnSituation situation)
+    {
+        if (settings.mode == CrewMode.None)
+            return;
+
+        double UT = Planetarium.GetUniversalTime();
+        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+        HashSet<string> originalRoster = new HashSet<string>(roster.kerbals.Keys);
+        bool pilotAssigned = false;
+
+        // Skip non-crew parts, and external seats, which need a kerbal on EVA to sit in them.
+        // Command parts come first so the pilot ends up somewhere they can fly from.
+        // The parts are sorted in top down order, so the first command part is also where
+        // the stock game would put the pilot.
+        IEnumerable<ProtoPartSnapshot> crewable = protoVessel.protoPartSnapshots
+            .Where(p => p.partPrefab.CrewCapacity > 0 && !p.partPrefab.HasModuleImplementing<KerbalSeat>())
+            .OrderBy(p => p.partPrefab.HasModuleImplementing<ModuleCommand>() ? 0 : 1);
+
+        foreach (ProtoPartSnapshot part in crewable)
+        {
+            int capacity = part.partPrefab.CrewCapacity;
+
+            // Skip passenger parts if we're not filling all seats.
+            bool isPassenger = !part.partPrefab.HasModuleImplementing<ModuleCommand>();
+            if (isPassenger && settings.mode != CrewMode.FillAll)
+                continue;
+
+            // Put a crew member in each seat.
+            for (int seat = part.protoModuleCrew.Count; seat < capacity; seat++)
+            {
+                // The very first crew member should always be a pilot.
+                ProtoCrewMember crewMember = !pilotAssigned
+                    ? GetAvailableCrewWithTrait(settings.onlyNewKerbals, KerbalRoster.pilotTrait)
+                    : GetAvailableCrew(settings.onlyNewKerbals);
+
+                if (crewMember == null)
+                    return;
+
+                pilotAssigned = true;
+
+                // Set any newly hired kerbals to max level, but don't mess with already existing kerbals.
+                if (!originalRoster.Contains(crewMember.name))
+                    KerbalRoster.SetExperienceLevel(crewMember, KerbalRoster.GetExperienceMaxLevel());
+
+                crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                crewMember.seatIdx = seat;
+                CreateLogEntry(crewMember, situation);
+
+                part.protoModuleCrew.Add(crewMember);
+                part.protoCrewNames.Add(crewMember.name);
+                protoVessel.AddCrew(crewMember);
+
+                if (settings.mode == CrewMode.Pilot)
+                    return;
             }
         }
+    }
 
-        private static ProtoCrewMember GetAvailableCrewWithTrait(bool onlyNew, string trait)
+    private static ProtoCrewMember GetAvailableCrew(bool onlyNew)
+    {
+        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+        return onlyNew ? roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew) : roster.GetNextOrNewKerbal(ProtoCrewMember.KerbalType.Crew);
+    }
+
+    // The same as GetNextOrNewKerbal, but with a certain trait like pilot, engineer, scientist.
+    private static ProtoCrewMember GetAvailableCrewWithTrait(bool onlyNew, string trait)
+    {
+        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+
+        if (!onlyNew)
         {
-            // The same as GetNextOrNewKerbal, but with a certain trait like pilot, engineer, scientist.
-
-            ProtoCrewMember crewMember = null;
-            KerbalRoster crewRoster = HighLogic.CurrentGame.CrewRoster;
-
-            if (!onlyNew)
-            {
-                IEnumerable<ProtoCrewMember> availableCrew = crewRoster.Kerbals(ProtoCrewMember.KerbalType.Crew, new ProtoCrewMember.RosterStatus[] { ProtoCrewMember.RosterStatus.Available });
-                foreach (ProtoCrewMember kerbal in availableCrew)
-                    if (kerbal.trait == trait)
-                        crewMember = kerbal;
-            }
-
-            if (crewMember == null)
-            {
-                crewMember = crewRoster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-                KerbalRoster.SetExperienceTrait(crewMember, trait);
-            }
-
-            return crewMember;
+            foreach (ProtoCrewMember kerbal in roster.Kerbals(ProtoCrewMember.KerbalType.Crew, ProtoCrewMember.RosterStatus.Available))
+                if (kerbal.trait == trait)
+                    return kerbal;
         }
 
-        private static void CreateLogEntry(ProtoCrewMember crewMember, SituationInfo situationInfo)
+        ProtoCrewMember crewMember = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+        KerbalRoster.SetExperienceTrait(crewMember, trait);
+        return crewMember;
+    }
+
+    // Create the initial log entry that would otherwise be missing.
+    private static void CreateLogEntry(ProtoCrewMember crewMember, SpawnSituation situation)
+    {
+        FlightLog.EntryType entryType;
+
+        if (situation.landed)
+            entryType = FlightLog.EntryType.Land;
+        else
         {
-            // Create the initial log entry that would otherwise be missing.
-            // IDK what purpose they serve exactly but might as well.
-
-            FlightLog.EntryType entryType;
-
-            switch (situationInfo.situation)
+            switch (Placement.OrbitSituation(situation.orbit))
             {
-                case Vessel.Situations.FLYING:
-                    entryType = FlightLog.EntryType.Flight;
-                    break;
-                case Vessel.Situations.LANDED:
-                case Vessel.Situations.SPLASHED:
-                    entryType = FlightLog.EntryType.Land;
-                    break;
-                case Vessel.Situations.ORBITING:
-                    entryType = FlightLog.EntryType.Orbit;
-                    break;
                 case Vessel.Situations.SUB_ORBITAL:
-                    entryType = FlightLog.EntryType.Suborbit;
+                    entryType = situation.body.atmosphere && situation.orbit.PeA < situation.body.atmosphereDepth && situation.orbit.ApA < situation.body.atmosphereDepth
+                        ? FlightLog.EntryType.Flight : FlightLog.EntryType.Suborbit;
                     break;
                 case Vessel.Situations.ESCAPING:
                     entryType = FlightLog.EntryType.Escape;
                     break;
                 default:
-                    return;
+                    entryType = FlightLog.EntryType.Orbit;
+                    break;
             }
-
-            crewMember?.flightLog?.AddEntryUnique(entryType, situationInfo.orbit.referenceBody.name);
         }
 
-        #endregion
+        crewMember.flightLog?.AddEntryUnique(entryType, situation.body.name);
     }
+
+    #endregion
 }

@@ -1,74 +1,122 @@
-﻿using Expansions.Missions.Editor;
 using System;
+using System.Globalization;
 using UnityEngine;
 
-namespace LazySpawner
+namespace LazySpawner;
+
+public interface ITextField
 {
-    public interface ITextField
+    string Text { get; set; }
+    bool Valid { get; }
+    void Draw(ref bool ready);
+}
+
+// A labelled text box that parses its contents into a value, turns red when
+// the contents don't parse, and persists its text as a setting.
+public class TextField<T> : ITextField, ISetting
+{
+    public string title;
+    public string tooltip;
+    public T value;
+
+    public Func<string, T> parser;
+    public Func<T, bool> validator;
+
+    private readonly string defaultText;
+    private string text;
+    private string last;
+
+    public string Text
     {
-        string Text { get; set; }
-        bool Valid { get; }
-        void Draw(ref bool ready);
+        get => text;
+        set
+        {
+            text = value ?? "";
+            Refresh();
+        }
     }
 
-    public class TextField<T> : ITextField
+    public bool Valid { get; private set; } = true;
+
+    public TextField(string title, string text, Func<string, T> parser, Func<T, bool> validator = null, string tooltip = null)
     {
-        public string title;
-        public T value;
+        this.title = title;
+        this.tooltip = tooltip;
+        this.parser = parser;
+        this.validator = validator;
+        defaultText = text;
+        Text = text;
+    }
 
-        public Func<string, T> parser;
+    public static implicit operator T(TextField<T> field) => field.value;
 
-        public string Text { get => text; set => text = value; }
-        public string text;
-        private string last;
+    public void Refresh()
+    {
+        last = text;
 
-        public bool Valid { get => _valid; private set => _valid = value; }
-        private bool _valid = true;
-
-        public TextField(string title, string text, Func<string, T> parser)
+        try
         {
-            this.title = title;
-            this.text = text;
-            this.parser = parser;
-
-            TryParse(out value);
+            value = parser(text);
+            Valid = value != null && (validator == null || validator(value));
         }
-
-        public bool TryParse(out T result)
+        catch
         {
-            try
-            {
-                result = parser(text);
-                last = text;
-                return true;
-            }
-            catch
-            {
-                result = default;
-                last = text;
-                return false;
-            }
-        }
-
-        public void Draw(ref bool ready)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(title + ": ", GUILayout.Width(IMGUI.windowWidth * IMGUI.fieldNameProportion));
-
-            if (!Valid)
-                GUI.color = Color.red;
-
-            text = GUILayout.TextField(text);
-
-            if (!Valid)
-                GUI.color = Color.white;
-
-            if (text != last || value == null)
-                Valid = TryParse(out value) && value != null;
-
-            ready = ready && Valid && value != null;
-
-            GUILayout.EndHorizontal();
+            value = default;
+            Valid = false;
         }
     }
+
+    public void Draw(ref bool ready)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(new GUIContent(title + ": ", tooltip), GUILayout.Width(IMGUI.LabelWidth));
+
+        Color previous = GUI.color;
+        if (!Valid)
+            GUI.color = Color.red;
+
+        text = GUILayout.TextField(text);
+
+        GUI.color = previous;
+
+        if (text != last)
+            Refresh();
+
+        ready = ready && Valid;
+
+        GUILayout.EndHorizontal();
+    }
+
+    #region Parsers
+
+    public static float ParseFloat(string s) =>
+        float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+    public static double ParseDouble(string s) =>
+        double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+    public static int ParseInt(string s) =>
+        int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
+
+    #endregion
+
+    #region ISetting
+
+    Type ISetting.ValueType => typeof(string);
+
+    object ISetting.BoxedValue
+    {
+        get => text;
+        set => Text = (string)value;
+    }
+
+    Delegate ISetting.ChangedCallback => null;
+
+    bool ISetting.Apply(bool lazy, bool silentChange) => false;
+
+    void ISetting.Reset() { }
+
+    void ISetting.Revert() => Text = defaultText;
+
+    #endregion
 }

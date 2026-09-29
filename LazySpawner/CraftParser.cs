@@ -1,806 +1,474 @@
-﻿using KSP.Localization;
+using KSP.Localization;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using UnityEngine;
-using Debug = UnityEngine.Debug;
 
-namespace LazySpawner
+namespace LazySpawner;
+
+// Translates a craft file (editor format) into a vessel node (persistent save format)
+// without instantiating a single part. The result is a VesselTemplate that the game
+// can load as an ordinary unloaded vessel.
+//
+// Transformation notes
+// Craft: pos/rot are the part's transform.position/rotation in the editor scene.
+// Persistent: position/rotation are relative to the root part, in the vessel's frame.
+// Craft: link/sym/attN/srfN reference parts by name_craftID.
+// Persistent: parent/sym/attN/srfN reference parts by index, and parts must be listed
+// in top-down tree order so that a part's parent is always loaded before it.
+public class CraftParser
 {
-    class CraftParser
+    private class PartInfo
     {
-        public static bool parsePartsInParallel = true;
-        public static bool alsoParsePartsSequentially = true;
-
-        private readonly StringBuilder sb = new StringBuilder();
-
-        // Refs used in stock functions. Here to save GC.
-        private string nodeID = string.Empty;
-        private string attnPartID = string.Empty;
-        private Vector3 attnPos = Vector3.zero;
-
-        private readonly Dictionary<uint, int> idLookupCraftFile = new Dictionary<uint, int>();
-        private readonly Dictionary<uint, int> idLookupProto = new Dictionary<uint, int>();
-        public readonly List<PartConstruct> partsCraftFile = new List<PartConstruct>();
-
-        public class PartConstruct
-        {
-            public ProtoPartSnapshot snapshot;
-            public ConfigNode partNode;
-            public List<int> links;
-            public List<uint> symmetryCounterparts;
-            public List<string> attachNodes;
-            public string srfAttachNode;
-        }
-
-        public class MissingPartsException : Exception
-        {
-            // base constructor
-            public MissingPartsException(string message) : base(message) { }
-        }
-
-        private void SortParts(PartConstruct info, Dictionary<uint, int> visitedParts, List<ProtoPartSnapshot> sortedParts)
-        {
-            if (visitedParts.ContainsKey(info.snapshot.craftID))
-                return;
-
-            int index = sortedParts.Count;
-            visitedParts.Add(info.snapshot.craftID, index);
-            sortedParts.Add(info.snapshot);
-
-            foreach (int link in info.links)
-            {
-                PartConstruct child = partsCraftFile[link];
-                child.snapshot.parentIdx = index;
-                SortParts(child, visitedParts, sortedParts);
-            }
-        }
-
-        private bool TryCreateAttachNode(string value, out AttachNodeSnapshot attachNodeSnapshot)
-        {
-            string attnMeshName = string.Empty;
-            attachNodeSnapshot = null;
-
-            if (!KSPUtil.GetAttachNodeInfo(value, ref nodeID, ref attnPartID, ref attnPos, ref attnMeshName))
-                return false;
-
-            if (nodeID == "Null" || !TryIndexFromCID(attnPartID, out int attNIndex))
-                return false;
-
-            sb.Clear();
-            sb.Append(nodeID).Append(",").Append(attNIndex);
-
-            if (attnMeshName != string.Empty)
-                sb.Append(",").Append(attnMeshName);
-
-            attachNodeSnapshot = new AttachNodeSnapshot(sb.ToString());
-            return true;
-        }
-
-        private bool TryIndexFromCID(string nameAndCID, out int index)
-        {
-            index = -1;
-            if (!uint.TryParse(nameAndCID.Split('_').Last(), out uint linkCID))
-                return false;
-
-            if (linkCID == 0)
-                return false;
-
-            return idLookupProto.TryGetValue(linkCID, out index) && index < idLookupProto.Values.Count;
-        }
-
-        private bool TryGetCraftID(string nameAndCID, out uint craftID)
-        {
-            int num = nameAndCID.IndexOf('_');
-            return uint.TryParse(nameAndCID.Substring(num + 1, nameAndCID.Length - num - 1), out craftID);
-        }
-
-        private bool TryGetCraftFileIndex(string nameAndCID, out int index)
-        {
-            index = -1;
-            if (!TryGetCraftID(nameAndCID, out uint craftID))
-                return false;
-
-            return idLookupCraftFile.TryGetValue(craftID, out index) && index < idLookupCraftFile.Values.Count;
-        }
-
-        public ProtoVessel Parse(ConfigNode craftNode)
-        {
-            // Create a proto vessel.
-
-            // can't include directly because there is false overlap in value names that causes exceptions
-            //ProtoVessel protoVessel = new ProtoVessel(craftNode, HighLogic.CurrentGame);
-
-            ConfigNode dummyProtoVesselNode = new ConfigNode();
-            ProtoVessel protoVessel = new ProtoVessel(dummyProtoVesselNode, HighLogic.CurrentGame);
-            string missionFlag = string.Empty;
-
-            // Read craft file and translate.
-
-            foreach (ConfigNode.Value value in craftNode.values)
-            {
-                switch (value.name)
-                {
-                    case "ship": // name
-                        protoVessel.vesselName = value.value;
-                        break;
-                    case "persistentId": // name
-                        uint.TryParse(value.value, out protoVessel.persistentId);
-                        break;
-                    case "rot":
-                        protoVessel.rotation = KSPUtil.ParseQuaternion(value.value);
-                        //protoVessel.rotation = Quaternion.identity;
-                        break;
-                    case "OverrideDefault":
-                        ParseExtensions.TryParseBoolArray(value.value, out protoVessel.OverrideDefault);
-                        protoVessel.OverrideDefault = ParseExtensions.ArrayMinSize(Vessel.NumOverrideGroups, protoVessel.OverrideDefault);
-                        break;
-                    case "OverrideActionControl":
-                        ParseExtensions.TryParseEnumIntArray(value.value, out protoVessel.OverrideActionControl);
-                        protoVessel.OverrideActionControl = ParseExtensions.ArrayMinSize(Vessel.NumOverrideGroups, protoVessel.OverrideActionControl);
-                        break;
-                    case "OverrideAxisControl":
-                        ParseExtensions.TryParseEnumIntArray(value.value, out protoVessel.OverrideAxisControl);
-                        protoVessel.OverrideAxisControl = ParseExtensions.ArrayMinSize(Vessel.NumOverrideGroups, protoVessel.OverrideAxisControl);
-                        break;
-                    case "OverrideGroupNames":
-                        protoVessel.OverrideGroupNames = ParseExtensions.ArrayMinSize(Vessel.NumOverrideGroups, ParseExtensions.ParseArray(value.value, StringSplitOptions.None));
-                        break;
-                    case "missionFlag":
-                        missionFlag = value.value;
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            protoVessel.skipGroundPositioning = false;
-            protoVessel.skipGroundPositioningForDroppedPart = false;
-            protoVessel.vesselSpawning = false;
-            protoVessel.CoM = Vector3.zero;
-
-            // stage must be set after part snapshots are loaded. could do the same with CoM if it's needed, but I suspect not.
-            // this reminds me I can get missionFlag from craft file. do parts have their own flags?
-
-            // I could have three steps to creating the protovessel:
-            // - init
-            // - load parts
-            // - post-load parts
-            // - apply sit
-            // - post-sit
-            // sit and load parts could be interchangeable?
-
-            protoVessel.stage = 0; // stg
-            protoVessel.persistent = false;
-            protoVessel.wasControllable = true; // ctrl
-            protoVessel.GroupOverride = 0;
-            protoVessel.altimeterDisplayState = AltimeterDisplayState.ASL; // altDisplayState
-
-            // could set camera state values here if required.
-            // a default orbit could be set here if required.
-
-            // Load parts.
-
-            Game game = HighLogic.CurrentGame;
-            string partNameAndID = string.Empty;
-            string partName = string.Empty;
-            string craftID = string.Empty;
-            ConfigNode dummyPartNode = new ConfigNode();
-
-            idLookupCraftFile.Clear();
-            partsCraftFile.Clear();
-
-            HashSet<string> missingParts = new HashSet<string>();
-
-            foreach (ConfigNode partNode in craftNode.nodes)
-            {
-                if (partNode.name != "PART")
-                    continue;
-
-                if (!partNode.TryGetValue("part", ref partNameAndID) || string.IsNullOrEmpty(partNameAndID))
-                    continue;
-
-                KSPUtil.GetPartInfo(partNameAndID, ref partName, ref craftID); // name
-
-                // Perhaps I should create ConfigNodes here?
-                // I believe it's slightly faster to create a snapshot directly.
-                // But it relies on making sure to account for any bad/missed creations/events/adds/assignments 
-                // after I pass the dummy node to the snapshot constructor.
-
-                // Check if the part is missing from the game.
-                AvailablePart partInfo = PartLoader.getPartInfoByName(partName);
-                if (partInfo == null || partInfo.partPrefab == null)
-                    missingParts.Add(partName);
-
-                // Skip if it is, or any have been found.
-                if (missingParts.Count > 1)
-                    continue;
-
-                ProtoPartSnapshot snapshot = new ProtoPartSnapshot(dummyPartNode, protoVessel, game);
-                snapshot.partInfo = partInfo;
-                partsCraftFile.Add(new PartConstruct()
-                {
-                    snapshot = snapshot,
-                    partNode = partNode,
-                    links = new List<int>(),
-                    symmetryCounterparts = new List<uint>(),
-                    attachNodes = new List<string>(),
-                    srfAttachNode = string.Empty,
-                });
-
-                // The ConfigNode constructor for ProtoPartSnapshot results in either the original OR a new PID.
-                // I always need the original for robotics, so discard the PID.
-                FlightGlobals.PersistentUnloadedPartIds.Remove(snapshot.persistentId);
-                snapshot.persistentId = 0u;
-
-                snapshot.partName = partName;
-                snapshot.craftID = uint.Parse(craftID); // cid (a unique ID *within* the craft, not an ID *for* the craft)
-
-                idLookupCraftFile.Add(snapshot.craftID, idLookupCraftFile.Count);
-            }
-
-            // There were modded or DLC parts that aren't available. Throw MissingPartsException.
-            if (missingParts.Count > 0)
-            {
-                StringBuilder sb = new StringBuilder();
-
-                foreach (string misingPartName in missingParts)
-                    sb.Append(misingPartName).Append("\n");
-
-                // todo: don't like this. cleanup/abort function?
-                idLookupCraftFile.Clear();
-                partsCraftFile.Clear();
-
-                string errorString = Localizer.Format("#autoLOC_6002425", protoVessel.vesselName, sb.ToString());
-                throw new MissingPartsException(errorString);
-            }
-
-            // Parse the values and nodes on the individual parts.
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            if (!parsePartsInParallel)
-            {
-                // Parse parts sequentially.
-                ParsePartsSequential(missionFlag);
-                stopwatch.Stop();
-                UnityEngine.Debug.Log($"Sequential parse took {stopwatch.Elapsed.Milliseconds:N3} ms.");
-            }
-            else
-            {
-                // Parse parts in parallel.
-                ParsePartsParallel(missionFlag);
-                stopwatch.Stop();
-                UnityEngine.Debug.Log($"Parallel parse took {stopwatch.Elapsed.Milliseconds:N3} ms.");
-            }
-
-            int highestPriority = int.MinValue;
-            int highestStage = int.MinValue;
-
-            VesselNaming vesselNaming = null;
-
-            foreach (PartConstruct info in partsCraftFile)
-            {
-                // Inverse assign parents.
-                foreach (int link in info.links)
-                    partsCraftFile[link].snapshot.parent = info.snapshot;
-
-                // Find the highest priority name/type.
-                if (info.snapshot.vesselNaming != null && info.snapshot.vesselNaming.namingPriority > highestPriority)
-                {
-                    highestPriority = info.snapshot.vesselNaming.namingPriority;
-                    vesselNaming = info.snapshot.vesselNaming;
-                }
-
-                // Find the starting stage.
-                if (info.snapshot.inverseStageIndex > highestStage)
-                    highestStage = info.snapshot.inverseStageIndex;
-            }
-
-            // Set stage.
-            protoVessel.stage = highestStage + 1;
-
-            // Set vessel naming.
-            if (vesselNaming != null)
-            {
-                protoVessel.vesselType = vesselNaming.vesselType;
-                protoVessel.vesselName = vesselNaming.vesselName;
-            }
-            else
-            {
-                protoVessel.vesselType = VesselType.Ship;
-            }
-
-            // Now that we know parents, find the root part by starting anywhere and going up until I find a part with no parent.
-            // It's not always at index 0.
-
-            ProtoPartSnapshot current = partsCraftFile.First().snapshot;
-            while (current.parent != null)
-                current = current.parent;
-
-            PartConstruct rootPart = partsCraftFile[idLookupCraftFile[current.craftID]];
-            Transform root = new GameObject("LazySpawnerTempRoot").transform;
-            root.position = rootPart.snapshot.position;
-            root.rotation = rootPart.snapshot.rotation;
-
-
-            // Now that we know the root, assign positions.
-
-            Quaternion inverse = Quaternion.Inverse(root.rotation);
-            foreach (PartConstruct info in partsCraftFile)
-            {
-                info.snapshot.position = root.InverseTransformPoint(info.snapshot.position);
-                info.snapshot.rotation = inverse * info.snapshot.rotation;
-            }
-
-            UnityEngine.Object.Destroy(root.gameObject);
-
-            // protoPartSnapshots must be given in top-down order according to the part tree.
-            // Do a recursive sort to establish the order.
-
-            idLookupProto.Clear();
-            List<ProtoPartSnapshot> sortedParts = new List<ProtoPartSnapshot>();
-            SortParts(rootPart, idLookupProto, sortedParts);
-            protoVessel.rootIndex = 0;
-
-            UnityEngine.Debug.Assert(idLookupCraftFile.Count == sortedParts.Count && sortedParts.Count == partsCraftFile.Count,
-                "[LazySpawner]: Critical error: the number of craft parts does not match the number of spawned parts.");
-
-            // We now know the indices of the parts in the final sorted part list.
-            // Therefore we can finally establish all links that rely on that order.
-
-            foreach (PartConstruct info in partsCraftFile)
-            {
-                foreach (uint sym in info.symmetryCounterparts)
-                    info.snapshot.symLinkIdxs.Add(idLookupProto[sym]);
-
-                foreach (string attachNodeValue in info.attachNodes)
-                    if (TryCreateAttachNode(attachNodeValue, out AttachNodeSnapshot attachNodeSnapshot))
-                        info.snapshot.attachNodes.Add(attachNodeSnapshot);
-
-                if (info.srfAttachNode != string.Empty && TryCreateAttachNode(info.srfAttachNode, out AttachNodeSnapshot surfaceNodeSnapshot))
-                    info.snapshot.srfAttachNode = surfaceNodeSnapshot;
-                else
-                    info.snapshot.srfAttachNode = new AttachNodeSnapshot(",-1");
-            }
-
-            protoVessel.protoPartSnapshots = sortedParts;
-
-            // These can be empty for new vessels, but must not be null.
-            protoVessel.actionGroups = new ConfigNode("ACTIONGROUPS");
-            protoVessel.discoveryInfo = new ConfigNode("DISCOVERY");
-            protoVessel.flightPlan = new ConfigNode("FLIGHTPLAN");
-            protoVessel.ctrlState = new ConfigNode("CTRLSTATE");
-            protoVessel.vesselModules = new ConfigNode("VESSELMODULES");
-
-            // result nodes (orig vs spawned)
-
-            // wrong state 1 vs 0
-            // wrong group override 0 vs 1
-            // wrong istg 1 vs -1
-
-            // mass correct!
-            // Action groups wrong? Stage and SAS are true and have time values
-            // lat through com state values seem fine.
-            // all other vessel modules are fine.
-
-            // fixed
-
-            // no refTransform
-            // wrong parent
-            // no syms (6 and 7 vs nothing)
-            // wrong position (0,-1.2810792922973633,0.62297248840332031 vs 0,-0.11854171752929688,0.62297248840332031)
-            // no robotics.
-            // - when persistent ID is changed, the reference to the part in the AXIS in CONTROLLEDAXES must change
-            // - ship construct line 679 (dictionary of changes)
-            // - moduleroboticscontroller line 930 (event)
-            // - AXIS and ACTIONS
-            // - I only need to worry about part persistentId, module doesn't change.
-
-            idLookupCraftFile.Clear();
-            idLookupProto.Clear();
-            //partsCraftFile.Clear();
-
-            // this doesn't actually free the memory of the dictionaries/lists (8 bytes per reference).
-            // I would need to set null. But that would use more memory overall if I'm going to use them again in short order.
-
-            // Find the reference transform AFTER populating the craft.
-            protoVessel.refTransform = default;
-
-            return protoVessel;
-        }
-
-        private void ParsePartsSequential(string missionFlag)
-        {
-            foreach (PartConstruct info in partsCraftFile)
-            {
-                foreach (ConfigNode.Value value in info.partNode.values)
-                {
-                    // transformation notes
-                    // attPos0 is the original localPosition
-                    // attPos is the difference between the current localPosition and the original localPosition (referenceTransform.localPosition - selectedPart.attPos0)
-                    // pos is the current transform.position
-
-                    // rot is the current transform.rotation
-                    // attRot0 is the original localRotation
-                    // attRot is the difference between the current localRotation and the original localRotation (referenceTransform.localRotation * Quaternion.Inverse(selectedPart.attRot0))
-
-                    // protopart.position and part.orgpos are the position of the part in the local space of the root part
-
-                    // I need to know the root part BEFORE I start assigning positions. Which means after links and parents
-
-                    switch (value.name)
-                    {
-                        case "persistentId":
-                            if (!uint.TryParse(value.value, out uint pid) && !uint.TryParse(value.value.Split(',')[0].Trim(), out pid))
-                                pid = 0u;
-
-                            // We need to know the original pID because robotics controllers work by referencing pID.
-                            info.snapshot.persistentId = pid;
-
-                            break;
-                        //case "attPos0":
-                        //    info.snapshot.position = KSPUtil.ParseVector3(value.value) + KSPUtil.ParseVector3(info.partNode.GetValue("attPos"));
-                        //    break;
-                        case "pos":
-                            info.snapshot.position = KSPUtil.ParseVector3(value.value);
-                            break;
-                        case "rot":
-                            info.snapshot.rotation = KSPUtil.ParseQuaternion(value.value);
-                            break;
-                        //case "attRot0":
-                        //    info.snapshot.rotation = KSPUtil.ParseQuaternion(value.value);
-                        //    break;
-                        //case "link":
-                        //    if (TryIndexFromCID(value.value, out int linkIndex))
-                        //        info.links.Add(linkIndex);
-                        //    break;
-                        //case "sym":
-                        //    if (TryIndexFromCID(value.value, out int symIndex))
-                        //        info.snapshot.symLinkIdxs.Add(symIndex);
-                        //    break;
-                        //case "attN":
-                        //    if (TryCreateAttachNode(value.value, out AttachNodeSnapshot attachNodeSnapshot))
-                        //        info.snapshot.attachNodes.Add(attachNodeSnapshot);
-                        //    break;
-                        //case "srfN":
-                        //    if (TryCreateAttachNode(value.value, out AttachNodeSnapshot surfaceNodeSnapshot))
-                        //        info.snapshot.srfAttachNode = surfaceNodeSnapshot;
-                        case "link":
-                            if (TryGetCraftFileIndex(value.value, out int linkID))
-                                info.links.Add(linkID);
-                            break;
-                        case "sym":
-                            if (TryGetCraftID(value.value, out uint symID))
-                                info.symmetryCounterparts.Add(symID);
-                            break;
-                        case "attN":
-                            info.attachNodes.Add(value.value);
-                            break;
-                        case "srfN":
-                            info.srfAttachNode = value.value;
-                            break;
-                        case "mir":
-                            //part.SetMirror(KSPUtil.ParseVector3(value.value));
-                            info.snapshot.mirror = KSPUtil.ParseVector3(value.value);
-                            break;
-                        case "symMethod":
-                            info.snapshot.symMethod = (SymmetryMethod)Enum.Parse(typeof(SymmetryMethod), value.value);
-                            break;
-                        case "istg":
-                            info.snapshot.inverseStageIndex = int.Parse(value.value);
-                            break;
-                        case "resPri":
-                            info.snapshot.resourcePriorityOffset = int.Parse(value.value);
-                            break;
-                        case "dstg":
-                            info.snapshot.defaultInverseStage = int.Parse(value.value);
-                            break;
-                        case "sqor":
-                            info.snapshot.seqOverride = int.Parse(value.value);
-                            break;
-                        case "sepI":
-                            info.snapshot.separationIndex = int.Parse(value.value);
-                            break;
-                        case "sidx":
-                            info.snapshot.inStageIndex = int.Parse(value.value);
-                            break;
-                        case "attm":
-                            info.snapshot.attachMode = int.Parse(value.value);
-                            break;
-                        case "sameVesselCollision":
-                            info.snapshot.sameVesselCollision = bool.Parse(value.value);
-                            break;
-                        case "modCost":
-                            info.snapshot.moduleCosts = float.Parse(value.value);
-                            break;
-                        case "modMass":
-                            info.snapshot.moduleMass = float.Parse(value.value);
-                            break;
-                        case "autostrutMode":
-                            info.snapshot.autostrutMode = (Part.AutoStrutMode)Enum.Parse(typeof(Part.AutoStrutMode), value.value);
-                            break;
-                        case "rigidAttachment":
-                            info.snapshot.rigidAttachment = bool.Parse(value.value);
-                            break;
-                        default:
-                            break;
-                    }
-                }
-
-                info.snapshot.shielded = false;
-                info.snapshot.temperature = 300;
-                info.snapshot.skinTemperature = 300;
-                info.snapshot.skinUnexposedTemperature = 4;
-                info.snapshot.staticPressureAtm = 0;
-                info.snapshot.state = 0;
-                info.snapshot.PreFailState = 0;
-                info.snapshot.attached = true;
-                info.snapshot.flagURL = missionFlag;
-
-
-                // Ignored
-                // moduleVariantName
-                // moduleCargoStackableQuantity
-                // mass
-                // expt
-                // rTrf (refTransformName, could be to do with control point direction?) (activeControlPointName? or maybe not)
-                // crew
-
-                // Set part modules.
-
-                for (int k = 0; k < info.partNode.nodes.Count; k++)
-                {
-                    ConfigNode configNode = info.partNode.nodes[k];
-                    switch (configNode.name)
-                    {
-                        case "MODULE":
-                            info.snapshot.modules.Add(new ProtoPartModuleSnapshot(configNode));
-                            break;
-                        case "ACTIONS":
-                            info.snapshot.partActions = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partActions);
-                            break;
-                        case "PARTDATA":
-                            info.snapshot.partData = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partData);
-                            break;
-                        case "RESOURCE":
-                            info.snapshot.resources.Add(new ProtoPartResourceSnapshot(configNode));
-                            break;
-                        case "VESSELNAMING":
-                            info.snapshot.vesselNaming = new VesselNaming(configNode);
-                            break;
-                        case "EVENTS":
-                            info.snapshot.partEvents = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partEvents);
-                            break;
-                        case "EFFECTS":
-                            info.snapshot.partEffects = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partEffects);
-                            break;
-                    }
-                }
-            }
-        }
-
-        private void ParsePartsParallel(string missionFlag)
-        {
-            // Thread safe list to add modules we find to.
-            ConcurrentDictionary<PartConstruct, List<ConfigNode>> bag = new ConcurrentDictionary<PartConstruct, List<ConfigNode>>();
-
-            Parallel.ForEach(partsCraftFile, info =>
-            {
-                foreach (ConfigNode.Value value in info.partNode.values)
-                {
-                    switch (value.name)
-                    {
-                        case "persistentId":
-                            if (!uint.TryParse(value.value, out uint pid) && !uint.TryParse(value.value.Split(',')[0].Trim(), out pid))
-                                pid = 0u;
-
-                            // We need to know the original pID because robotics controllers work by referencing pID.
-                            info.snapshot.persistentId = pid;
-
-                            break;
-                        case "pos":
-                            info.snapshot.position = KSPUtil.ParseVector3(value.value);
-                            break;
-                        case "rot":
-                            info.snapshot.rotation = KSPUtil.ParseQuaternion(value.value);
-                            break;
-                        case "link":
-                            if (TryGetCraftFileIndex(value.value, out int linkID))
-                                info.links.Add(linkID);
-                            break;
-                        case "sym":
-                            if (TryGetCraftID(value.value, out uint symID))
-                                info.symmetryCounterparts.Add(symID);
-                            break;
-                        case "attN":
-                            info.attachNodes.Add(value.value);
-                            break;
-                        case "srfN":
-                            info.srfAttachNode = value.value;
-                            break;
-                        case "mir":
-                            info.snapshot.mirror = KSPUtil.ParseVector3(value.value);
-                            break;
-                        case "symMethod":
-                            info.snapshot.symMethod = (SymmetryMethod)Enum.Parse(typeof(SymmetryMethod), value.value);
-                            break;
-                        case "istg":
-                            info.snapshot.inverseStageIndex = int.Parse(value.value);
-                            break;
-                        case "resPri":
-                            info.snapshot.resourcePriorityOffset = int.Parse(value.value);
-                            break;
-                        case "dstg":
-                            info.snapshot.defaultInverseStage = int.Parse(value.value);
-                            break;
-                        case "sqor":
-                            info.snapshot.seqOverride = int.Parse(value.value);
-                            break;
-                        case "sepI":
-                            info.snapshot.separationIndex = int.Parse(value.value);
-                            break;
-                        case "sidx":
-                            info.snapshot.inStageIndex = int.Parse(value.value);
-                            break;
-                        case "attm":
-                            info.snapshot.attachMode = int.Parse(value.value);
-                            break;
-                        case "sameVesselCollision":
-                            info.snapshot.sameVesselCollision = bool.Parse(value.value);
-                            break;
-                        case "modCost":
-                            info.snapshot.moduleCosts = float.Parse(value.value);
-                            break;
-                        case "modMass":
-                            info.snapshot.moduleMass = float.Parse(value.value);
-                            break;
-                        case "autostrutMode":
-                            info.snapshot.autostrutMode = (Part.AutoStrutMode)Enum.Parse(typeof(Part.AutoStrutMode), value.value);
-                            break;
-                        case "rigidAttachment":
-                            info.snapshot.rigidAttachment = bool.Parse(value.value);
-                            break;
-                        default:
-                            break;
-                    }
-                }
-
-                info.snapshot.shielded = false;
-                info.snapshot.temperature = 300;
-                info.snapshot.skinTemperature = 300;
-                info.snapshot.skinUnexposedTemperature = 4;
-                info.snapshot.staticPressureAtm = 0;
-                info.snapshot.state = 0;
-                info.snapshot.PreFailState = 0;
-                info.snapshot.attached = true;
-                info.snapshot.flagURL = missionFlag;
-
-
-                // Ignored
-                // moduleVariantName
-                // moduleCargoStackableQuantity
-                // mass
-                // expt
-                // rTrf (refTransformName, could be to do with control point direction?) (activeControlPointName? or maybe not)
-                // crew
-
-                // Set part modules.
-
-                List<ConfigNode> moduleNodes = new List<ConfigNode>();
-
-                for (int k = 0; k < info.partNode.nodes.Count; k++)
-                {
-                    ConfigNode configNode = info.partNode.nodes[k];
-                    switch (configNode.name)
-                    {
-                        case "MODULE":
-                            moduleNodes.Add(configNode);
-                            break;
-                        case "ACTIONS":
-                            info.snapshot.partActions = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partActions);
-                            break;
-                        case "PARTDATA":
-                            info.snapshot.partData = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partData);
-                            break;
-                        case "RESOURCE":
-                            info.snapshot.resources.Add(new ProtoPartResourceSnapshot(configNode));
-                            break;
-                        case "VESSELNAMING":
-                            info.snapshot.vesselNaming = new VesselNaming(configNode);
-                            break;
-                        case "EVENTS":
-                            info.snapshot.partEvents = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partEvents);
-                            break;
-                        case "EFFECTS":
-                            info.snapshot.partEffects = new ConfigNode();
-                            configNode.CopyTo(info.snapshot.partEffects);
-                            break;
-                    }
-                }
-
-                if (moduleNodes.Count > 0)
-                    bag.TryAdd(info, moduleNodes);
-            });
-
-            // Creating a PartModuleSnapshot is not thread-safe. They must be created sequentially.
-            //foreach (PartConstruct info in partsCraftFile)
-            //{
-            //    foreach (ConfigNode configNode in info.partNode.nodes)
-            //    {
-            //        if (configNode.name == "MODULE")
-            //            info.snapshot.modules.Add(new ProtoPartModuleSnapshot(configNode));
-            //    }
-            //}
-
-            foreach (KeyValuePair<PartConstruct, List<ConfigNode>> kvp in bag)
-            {
-                foreach (ConfigNode configNode in kvp.Value)
-                    kvp.Key.snapshot.modules.Add(new ProtoPartModuleSnapshot(configNode));
-            }
-        }
-
-        #region Control
-
-        public void EstablishReferenceTransform(ProtoVessel protoVessel)
-        {
-            // The stock game finds the control source by recursively following the part tree down from the root.
-            // But since the part snapshots are sorted in top-down order, the result should be the same.
-
-            ProtoPartSnapshot firstControlPart = null;
-            ProtoPartSnapshot firstCrewedPart = null;
-
-            foreach (ProtoPartSnapshot snapshot in protoVessel.protoPartSnapshots)
-            {
-                if (firstControlPart == null && snapshot.partPrefab.isControlSource > Vessel.ControlLevel.NONE)
-                {
-                    firstControlPart = snapshot;
-                    if (firstControlPart == protoVessel.protoPartSnapshots[0])
-                        break;
-                }
-
-                if (snapshot.partPrefab.CrewCapacity > 0 && snapshot.protoModuleCrew.Count > 0 && snapshot.partPrefab.isControlSource > Vessel.ControlLevel.NONE)
-                {
-                    firstCrewedPart = snapshot;
-                    break;
-                }
-            }
-
-            ProtoPartSnapshot controlPart = firstCrewedPart ?? firstControlPart ?? protoVessel.protoPartSnapshots[0];
-            if (controlPart.flightID == default)
-                controlPart.flightID = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
-
-            protoVessel.refTransform = controlPart.flightID;
-
-            // This needs to come after Populate, except when cloning a vessel, in which case someone might
-        }
-
-        private PartConstruct FindCrewOrControlPart(PartConstruct part, ref PartConstruct firstControlSource)
-        {
-            // Returns first crew part or null if not found, while storing the first control source found in firstControlSource.
-
-            if (firstControlSource == null && part.snapshot.partPrefab.isControlSource > Vessel.ControlLevel.NONE)
-                firstControlSource = part;
-
-            if (part.snapshot.partPrefab.CrewCapacity > 0 && part.snapshot.protoModuleCrew.Count > 0 && part.snapshot.partPrefab.isControlSource > Vessel.ControlLevel.NONE)
-                return part;
-
-            foreach (int child in part.links)
-                if (FindCrewOrControlPart(partsCraftFile[child], ref firstControlSource) != null)
-                    return part;
-
-            return null;
-        }
-
-        #endregion
+        public ConfigNode craftNode;
+        public AvailablePart availablePart;
+        public string partName;
+        public uint craftID;
+        public Vector3 position;
+        public Quaternion rotation = Quaternion.identity;
+        public PartInfo parent;
+        public int index = -1;
+        public readonly List<uint> children = new List<uint>();
+        public readonly List<uint> symmetry = new List<uint>();
+        public readonly List<string> attachNodes = new List<string>();
+        public string srfAttachNode;
     }
+
+    public class MissingPartsException : SpawnException
+    {
+        public MissingPartsException(string message) : base(Localizer.Format("#autoLOC_6002424"), message) { }
+    }
+
+    private readonly Dictionary<uint, PartInfo> partsByCraftID = new Dictionary<uint, PartInfo>();
+    private readonly List<PartInfo> parts = new List<PartInfo>();
+    private readonly List<PartInfo> sortedParts = new List<PartInfo>();
+
+    public static VesselTemplate Parse(string craftPath)
+    {
+        if (string.IsNullOrEmpty(craftPath) || !File.Exists(craftPath))
+            throw new SpawnException("Craft Not Found", $"There is no craft file at:\n{craftPath}");
+
+        ConfigNode craftNode = ConfigNode.Load(craftPath);
+        if (craftNode == null)
+            throw new SpawnException("Craft Loading Error", $"The craft file could not be read:\n{craftPath}");
+
+        return new CraftParser().Parse(craftNode);
+    }
+
+    public VesselTemplate Parse(ConfigNode craftNode)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        string shipName = craftNode.GetValue("ship") ?? "Unnamed Vessel";
+        string missionFlag = craftNode.GetValue("missionFlag");
+        if (string.IsNullOrEmpty(missionFlag))
+            missionFlag = HighLogic.CurrentGame?.flagURL ?? "";
+
+        ReadParts(craftNode, shipName);
+        LinkParts();
+
+        // Find the root part by starting anywhere and going up until we find a part with no parent.
+        // It's not always the first part in the file.
+        PartInfo root = parts[0];
+        while (root.parent != null)
+            root = root.parent;
+
+        // Parts must be given in top-down order according to the part tree.
+        // A recursive sort establishes the order and gives each part its final index.
+        SortParts(root);
+
+        if (sortedParts.Count != parts.Count)
+            throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has parts that aren't attached to the rest of the craft.");
+
+        VesselTemplate template = new VesselTemplate
+        {
+            name = shipName,
+            fromCraft = true,
+            partCount = sortedParts.Count,
+            uprightRotation = root.rotation,
+        };
+
+        ConfigNode vesselNode = template.node = new ConfigNode("VESSEL");
+
+        // Parts.
+
+        Quaternion inverseRoot = Quaternion.Inverse(root.rotation);
+        int highestStage = -1;
+        VesselType vesselType = VesselType.Debris;
+        VesselNaming vesselNaming = null;
+
+        foreach (PartInfo info in sortedParts)
+        {
+            Vector3 position = inverseRoot * (info.position - root.position);
+            Quaternion rotation = inverseRoot * info.rotation;
+            template.partPositions.Add(position);
+
+            ConfigNode partNode = CreatePartNode(info, position, rotation, missionFlag, out int inverseStage);
+            vesselNode.AddNode(partNode);
+
+            highestStage = Math.Max(highestStage, inverseStage);
+
+            if (info.availablePart.partPrefab.vesselType > vesselType)
+                vesselType = info.availablePart.partPrefab.vesselType;
+
+            ConfigNode namingNode = info.craftNode.GetNode("VESSELNAMING");
+            if (namingNode != null)
+            {
+                VesselNaming naming = new VesselNaming(namingNode);
+                if (naming.namingPriority > (vesselNaming?.namingPriority ?? 0))
+                    vesselNaming = naming;
+            }
+        }
+
+        // Vessel.
+
+        if (vesselNaming != null)
+        {
+            vesselType = vesselNaming.vesselType;
+            template.name = vesselNaming.vesselName;
+        }
+
+        AddVesselValues(craftNode, vesselNode, template.name, vesselType, highestStage + 1);
+
+        Vector3 craftSize = Vector3.zero;
+        if (craftNode.HasValue("size"))
+            craftSize = KSPUtil.ParseVector3(craftNode.GetValue("size"));
+
+        template.CalculateBounds(craftSize);
+
+        stopwatch.Stop();
+        Logger.Log($"Parsed {template.partCount} parts of {template.DisplayName} in {stopwatch.Elapsed.TotalMilliseconds:N1} ms.");
+
+        return template;
+    }
+
+    #region Parts
+
+    private void ReadParts(ConfigNode craftNode, string shipName)
+    {
+        HashSet<string> missingParts = new HashSet<string>();
+        string partName = string.Empty;
+        string craftID = string.Empty;
+
+        foreach (ConfigNode partNode in craftNode.nodes)
+        {
+            if (partNode.name != "PART")
+                continue;
+
+            string partNameAndID = partNode.GetValue("part");
+            if (string.IsNullOrEmpty(partNameAndID) || partNameAndID.IndexOf('_') < 0)
+                continue;
+
+            KSPUtil.GetPartInfo(partNameAndID, ref partName, ref craftID);
+
+            // Check if the part is missing from the game.
+            AvailablePart availablePart = PartLoader.getPartInfoByName(partName);
+            if (availablePart == null || availablePart.partPrefab == null)
+            {
+                missingParts.Add(partName);
+                continue;
+            }
+
+            if (missingParts.Count > 0)
+                continue;
+
+            if (!uint.TryParse(craftID, out uint cid) || partsByCraftID.ContainsKey(cid))
+                throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has an invalid part ID: {partNameAndID}");
+
+            PartInfo info = new PartInfo
+            {
+                craftNode = partNode,
+                availablePart = availablePart,
+                partName = partName,
+                craftID = cid,
+            };
+
+            ReadPartValues(info);
+
+            parts.Add(info);
+            partsByCraftID.Add(cid, info);
+        }
+
+        // There were modded or DLC parts that aren't available.
+        if (missingParts.Count > 0)
+        {
+            StringBuilder sb = new StringBuilder();
+
+            foreach (string missingPartName in missingParts)
+                sb.Append(missingPartName).Append("\n");
+
+            throw new MissingPartsException(Localizer.Format("#autoLOC_6002425", Localizer.Format(shipName), sb.ToString()));
+        }
+
+        if (parts.Count == 0)
+            throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has no parts.");
+    }
+
+    private void ReadPartValues(PartInfo info)
+    {
+        foreach (ConfigNode.Value value in info.craftNode.values)
+        {
+            switch (value.name)
+            {
+                case "pos":
+                    info.position = KSPUtil.ParseVector3(value.value);
+                    break;
+                case "rot":
+                    info.rotation = KSPUtil.ParseQuaternion(value.value);
+                    break;
+                case "link":
+                    if (TryGetCraftID(value.value, out uint childID))
+                        info.children.Add(childID);
+                    break;
+                case "sym":
+                    if (TryGetCraftID(value.value, out uint symID))
+                        info.symmetry.Add(symID);
+                    break;
+                case "attN":
+                    info.attachNodes.Add(value.value);
+                    break;
+                case "srfN":
+                    info.srfAttachNode = value.value;
+                    break;
+            }
+        }
+    }
+
+    private void LinkParts()
+    {
+        foreach (PartInfo info in parts)
+        {
+            foreach (uint childID in info.children)
+            {
+                if (!partsByCraftID.TryGetValue(childID, out PartInfo child))
+                    throw new SpawnException("Craft Loading Error", $"Part {info.partName}_{info.craftID} links to a part that doesn't exist ({childID}). The craft file may be corrupted.");
+
+                child.parent = info;
+            }
+        }
+    }
+
+    private void SortParts(PartInfo info)
+    {
+        if (info.index >= 0)
+            return;
+
+        info.index = sortedParts.Count;
+        sortedParts.Add(info);
+
+        foreach (uint childID in info.children)
+            SortParts(partsByCraftID[childID]);
+    }
+
+    private ConfigNode CreatePartNode(PartInfo info, Vector3 position, Quaternion rotation, string missionFlag, out int inverseStage)
+    {
+        ConfigNode craft = info.craftNode;
+        ConfigNode node = new ConfigNode("PART");
+        Part prefab = info.availablePart.partPrefab;
+
+        string Get(string name, string fallback) =>
+            craft.GetValue(name) ?? fallback;
+
+        float moduleMass = 0;
+        float.TryParse(Get("modMass", "0"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out moduleMass);
+
+        inverseStage = 0;
+        int.TryParse(Get("istg", "0"), out inverseStage);
+
+        // The persistent ID from the craft is kept for now, because robotics controllers reference
+        // parts by it. The spawner replaces it with a unique one and fixes up those references.
+        node.AddValue("name", info.partName);
+        node.AddValue("cid", info.craftID);
+        node.AddValue("uid", 0);
+        node.AddValue("mid", 0);
+        node.AddValue("persistentId", Get("persistentId", "0"));
+        node.AddValue("launchID", 0);
+        node.AddValue("parent", info.parent?.index ?? 0);
+        node.AddValue("position", KSPUtil.WriteVector(position));
+        node.AddValue("rotation", KSPUtil.WriteQuaternion(rotation));
+        node.AddValue("mirror", Get("mir", "1,1,1"));
+        node.AddValue("symMethod", Get("symMethod", "Radial"));
+        node.AddValue("istg", inverseStage);
+        node.AddValue("resPri", Get("resPri", "0"));
+        node.AddValue("dstg", Get("dstg", "0"));
+        node.AddValue("sqor", Get("sqor", "-1"));
+        node.AddValue("sepI", Get("sepI", "0"));
+        node.AddValue("sidx", Get("sidx", "-1"));
+        node.AddValue("attm", Get("attm", "0"));
+        node.AddValue("sameVesselCollision", Get("sameVesselCollision", "False"));
+
+        string customData = craft.GetValue("cData");
+        if (!string.IsNullOrEmpty(customData))
+            node.AddValue("cData", customData);
+
+        foreach (uint symID in info.symmetry)
+            if (partsByCraftID.TryGetValue(symID, out PartInfo counterpart))
+                node.AddValue("sym", counterpart.index);
+
+        node.AddValue("srfN", TryConvertAttachNode(info.srfAttachNode, out string srfN) ? srfN : "None, -1");
+
+        foreach (string attachNode in info.attachNodes)
+            if (TryConvertAttachNode(attachNode, out string attN))
+                node.AddValue("attN", attN);
+
+        node.AddValue("mass", VesselTemplate.Format(prefab.mass + moduleMass));
+        node.AddValue("shielded", false);
+        node.AddValue("temp", 300);
+        node.AddValue("tempExt", 300);
+        node.AddValue("tempExtUnexp", 300);
+        node.AddValue("staticPressureAtm", 0);
+        node.AddValue("expt", VesselTemplate.Format(prefab.explosionPotential));
+        node.AddValue("state", (int)PartStates.IDLE);
+        node.AddValue("PreFailState", (int)PartStates.IDLE);
+        node.AddValue("attached", true);
+        node.AddValue("autostrutMode", Get("autostrutMode", "Off"));
+        node.AddValue("rigidAttachment", Get("rigidAttachment", "False"));
+        node.AddValue("flag", missionFlag);
+        node.AddValue("rTrf", "");
+        node.AddValue("modCost", Get("modCost", "0"));
+        node.AddValue("modMass", VesselTemplate.Format(moduleMass));
+        node.AddValue("moduleVariantName", GetSelectedVariant(craft));
+        node.AddValue("moduleCargoStackableQuantity", 1);
+
+        // Part modules, resources etc. share the same format in craft files and saves.
+        foreach (ConfigNode child in craft.nodes)
+        {
+            switch (child.name)
+            {
+                case "MODULE":
+                case "RESOURCE":
+                case "EVENTS":
+                case "ACTIONS":
+                case "PARTDATA":
+                case "EFFECTS":
+                case "VESSELNAMING":
+                    node.AddNode(child.CreateCopy());
+                    break;
+            }
+        }
+
+        return node;
+    }
+
+    private static string GetSelectedVariant(ConfigNode craftPartNode)
+    {
+        foreach (ConfigNode module in craftPartNode.GetNodes("MODULE"))
+            if (module.GetValue("name") == "ModulePartVariants")
+                return module.GetValue("selectedVariant") ?? "";
+
+        return "";
+    }
+
+    // Craft: "top,fuelTank_4294_0|1|0_0|1|0_0|1|0_0|1|0" or "srfAttach,fuelTank_4294,meshName,..."
+    // Persistent: "top, 3" or "srfAttach, 3,meshName"
+    private bool TryConvertAttachNode(string craftValue, out string persistentValue)
+    {
+        persistentValue = null;
+
+        if (string.IsNullOrEmpty(craftValue))
+            return false;
+
+        string[] fields = craftValue.Split(',');
+        if (fields.Length < 2)
+            return false;
+
+        string nodeID = fields[0].Trim();
+        string[] partFields = fields[1].Split('_');
+
+        if (partFields.Length < 2 || partFields[0] == "Null")
+            return false;
+
+        if (!uint.TryParse(partFields[1], out uint craftID) || !partsByCraftID.TryGetValue(craftID, out PartInfo attached))
+            return false;
+
+        persistentValue = nodeID + ", " + attached.index;
+
+        string meshName = nodeID == "srfAttach" && fields.Length > 2 ? fields[2].Trim() : "";
+        if (meshName != "")
+            persistentValue += "," + meshName;
+
+        return true;
+    }
+
+    private static bool TryGetCraftID(string nameAndCID, out uint craftID)
+    {
+        craftID = 0;
+        int index = nameAndCID.IndexOf('_');
+        return index >= 0 && uint.TryParse(nameAndCID.Substring(index + 1), out craftID) && craftID != 0;
+    }
+
+    #endregion
+
+    #region Vessel
+
+    private static void AddVesselValues(ConfigNode craftNode, ConfigNode vesselNode, string name, VesselType vesselType, int stage)
+    {
+        double UT = Planetarium.GetUniversalTime();
+
+        // Values the spawner always overwrites are still written, so that the node is a complete vessel.
+        vesselNode.AddValue("pid", Guid.Empty.ToString("N"));
+        vesselNode.AddValue("persistentId", 0);
+        vesselNode.AddValue("name", name);
+        vesselNode.AddValue("type", vesselType);
+        vesselNode.AddValue("sit", Vessel.Situations.ORBITING);
+        vesselNode.AddValue("landed", false);
+        vesselNode.AddValue("skipGroundPositioning", false);
+        vesselNode.AddValue("skipGroundPositioningForDroppedPart", false);
+        vesselNode.AddValue("vesselSpawning", false);
+        vesselNode.AddValue("launchedFrom", "");
+        vesselNode.AddValue("landedAt", "");
+        vesselNode.AddValue("displaylandedAt", "");
+        vesselNode.AddValue("splashed", false);
+        vesselNode.AddValue("met", 0);
+        vesselNode.AddValue("lct", VesselTemplate.Format(UT));
+        vesselNode.AddValue("lastUT", VesselTemplate.Format(UT));
+        vesselNode.AddValue("distanceTraveled", 0);
+        vesselNode.AddValue("root", 0);
+        vesselNode.AddValue("lat", 0);
+        vesselNode.AddValue("lon", 0);
+        vesselNode.AddValue("alt", 0);
+        vesselNode.AddValue("hgt", -1);
+        vesselNode.AddValue("nrm", KSPUtil.WriteVector(Vector3.up));
+        vesselNode.AddValue("rot", KSPUtil.WriteQuaternion(Quaternion.identity));
+        vesselNode.AddValue("CoM", KSPUtil.WriteVector(Vector3.zero));
+        vesselNode.AddValue("stg", stage);
+        vesselNode.AddValue("prst", false);
+        vesselNode.AddValue("ref", 0);
+        vesselNode.AddValue("ctrl", true);
+        vesselNode.AddValue("PQSMin", 0);
+        vesselNode.AddValue("PQSMax", 0);
+        vesselNode.AddValue("GroupOverride", 0);
+
+        CopyValue(craftNode, vesselNode, "OverrideDefault");
+        CopyValue(craftNode, vesselNode, "OverrideActionControl");
+        CopyValue(craftNode, vesselNode, "OverrideAxisControl");
+        CopyValue(craftNode, vesselNode, "OverrideGroupNames");
+
+        vesselNode.AddValue("altDispState", AltimeterDisplayState.DEFAULT);
+
+        // These can be empty for new vessels, but must be present.
+        vesselNode.AddNode("ACTIONGROUPS");
+        vesselNode.AddNode("FLIGHTPLAN");
+        vesselNode.AddNode("CTRLSTATE");
+        vesselNode.AddNode("VESSELMODULES");
+
+        ConfigNode discovery = vesselNode.AddNode("DISCOVERY");
+        discovery.AddValue("state", (int)DiscoveryLevels.Owned);
+        discovery.AddValue("lastObservedTime", VesselTemplate.Format(UT));
+        discovery.AddValue("lifetime", "Infinity");
+        discovery.AddValue("refTime", "Infinity");
+        discovery.AddValue("size", (int)UntrackedObjectClass.C);
+    }
+
+    private static void CopyValue(ConfigNode from, ConfigNode to, string name)
+    {
+        string value = from.GetValue(name);
+        if (value != null)
+            to.AddValue(name, value);
+    }
+
+    #endregion
 }

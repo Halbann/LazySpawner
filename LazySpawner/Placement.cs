@@ -1,0 +1,226 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using Random = UnityEngine.Random;
+
+namespace LazySpawner;
+
+// Where and how a vessel should appear.
+public class SpawnSituation
+{
+    public CelestialBody body;
+
+    // On the surface, otherwise in orbit.
+    public bool landed;
+
+    // Orbit.
+    public Orbit orbit;
+    public OrbitRotation orbitRotation = OrbitRotation.Prograde;
+    public Quaternion worldRotation = Quaternion.identity; // OrbitRotation.Fixed only.
+
+    // Landed.
+    public double latitude;
+    public double longitude;
+    public float heading;
+
+    public static SpawnSituation Orbiting(Orbit orbit, OrbitRotation rotation = OrbitRotation.Prograde) => new SpawnSituation
+    {
+        body = orbit.referenceBody,
+        orbit = orbit,
+        orbitRotation = rotation,
+    };
+
+    public static SpawnSituation Landed(CelestialBody body, double latitude, double longitude, float heading) => new SpawnSituation
+    {
+        body = body,
+        landed = true,
+        latitude = latitude,
+        longitude = longitude,
+        heading = heading,
+    };
+}
+
+public enum OrbitRotation
+{
+    Prograde,
+    Random,
+    Fixed,
+}
+
+public static class Placement
+{
+    #region Frames
+
+    // Rotation of a frame on the surface with y = up and z = the heading (degrees clockwise from north).
+    public static Quaternion SurfaceFrame(CelestialBody body, double latitude, double longitude, float heading)
+    {
+        Vector3d up = body.GetSurfaceNVector(latitude, longitude);
+        Vector3d north = North(body, up);
+        Vector3d east = Vector3d.Cross(up, north);
+
+        // Make sure east really is the direction of increasing longitude, whatever the handedness.
+        Vector3d towardsEast = body.GetWorldSurfacePosition(latitude, longitude + 0.001, 0) - body.GetWorldSurfacePosition(latitude, longitude, 0);
+        if (Vector3d.Dot(east, towardsEast) < 0)
+            east = -east;
+
+        double h = heading * Mathf.Deg2Rad;
+        Vector3d forward = north * Math.Cos(h) + east * Math.Sin(h);
+
+        return Quaternion.LookRotation(forward, up);
+    }
+
+    private static Vector3d North(CelestialBody body, Vector3d up)
+    {
+        Vector3d axis = body.transform.up;
+        Vector3d north = Vector3d.Exclude(up, axis);
+
+        // At the poles any direction will do.
+        if (north.sqrMagnitude < 1e-8)
+            north = Vector3d.Exclude(up, body.transform.forward);
+
+        return north.normalized;
+    }
+
+    public static float Heading(Vessel vessel)
+    {
+        if (vessel == null || vessel.ReferenceTransform == null)
+            return 0;
+
+        CelestialBody body = vessel.mainBody;
+        Vector3d up = body.GetSurfaceNVector(vessel.latitude, vessel.longitude);
+        Vector3 forward = Vector3.ProjectOnPlane(vessel.ReferenceTransform.up, up);
+        if (forward.sqrMagnitude < 0.01f)
+            forward = Vector3.ProjectOnPlane(-vessel.ReferenceTransform.forward, up);
+
+        Vector3 north = SurfaceFrame(body, vessel.latitude, vessel.longitude, 0) * Vector3.forward;
+        Vector3 east = SurfaceFrame(body, vessel.latitude, vessel.longitude, 90) * Vector3.forward;
+        float angle = Mathf.Atan2(Vector3.Dot(forward, east), Vector3.Dot(forward, north)) * Mathf.Rad2Deg;
+
+        return (angle + 360) % 360;
+    }
+
+    #endregion
+
+    #region Orbits
+
+    public static Orbit CreateOrbit(CelestialBody body, double inclination, double eccentricity, double sma, double lan, double argPe, double meanAnomalyAtEpoch, double epoch) =>
+        new Orbit(inclination, eccentricity, sma, lan, argPe, meanAnomalyAtEpoch, epoch, body);
+
+    // An orbit that passes through the given world position with the given world velocity.
+    public static Orbit OrbitFromWorldState(CelestialBody body, Vector3d worldPosition, Vector3d worldVelocity, double UT)
+    {
+        Orbit orbit = new Orbit();
+        orbit.UpdateFromStateVectors((worldPosition - body.position).xzy, worldVelocity.xzy, body, UT);
+        return orbit;
+    }
+
+    public static Vessel.Situations OrbitSituation(Orbit orbit)
+    {
+        CelestialBody body = orbit.referenceBody;
+
+        if (orbit.eccentricity >= 1 || orbit.ApR > body.sphereOfInfluence)
+            return Vessel.Situations.ESCAPING;
+
+        if (orbit.PeA < (body.atmosphere ? body.atmosphereDepth : 0))
+            return Vessel.Situations.SUB_ORBITAL;
+
+        return Vessel.Situations.ORBITING;
+    }
+
+    // World rotation that points the reference part's nose prograde with its roof facing away from the body.
+    public static Quaternion Prograde(Orbit orbit, double UT, Quaternion referenceRelative)
+    {
+        Vector3d position = orbit.getPositionAtUT(UT);
+        Vector3d velocity = orbit.getOrbitalVelocityAtUT(UT).xzy;
+        Vector3d radialOut = (position - orbit.referenceBody.position).normalized;
+
+        if (velocity.sqrMagnitude < 1e-6)
+            velocity = Vector3d.Cross(radialOut, orbit.referenceBody.transform.up);
+
+        // A reference transform's up is its nose, and its forward points out of its belly.
+        Quaternion reference = Quaternion.LookRotation(-radialOut, velocity);
+        return reference * Quaternion.Inverse(referenceRelative);
+    }
+
+    #endregion
+
+    #region Nearby
+
+    // Spread out vessels around a vessel, either around it in orbit or on the ground around it,
+    // keeping them clear of the vessel and of each other.
+    public static List<SpawnSituation> Nearby(Vessel vessel, VesselTemplate template, int count, float range, bool randomRotation)
+    {
+        List<SpawnSituation> situations = new List<SpawnSituation>();
+        List<Vector3d> taken = new List<Vector3d>();
+
+        float vesselRadius = VesselRadius(vessel);
+        float minDistance = vesselRadius + template.radius + 5f;
+        float maxDistance = Mathf.Max(range, minDistance + template.radius * 2f);
+        float separation = template.radius * 2f + 2f;
+
+        bool landed = vessel.LandedOrSplashed || vessel.situation == Vessel.Situations.PRELAUNCH;
+        CelestialBody body = vessel.mainBody;
+        double UT = Planetarium.GetUniversalTime();
+        Vector3d origin = vessel.GetWorldPos3D();
+        Vector3d up = body.GetSurfaceNVector(vessel.latitude, vessel.longitude);
+        float heading = Heading(vessel);
+
+        for (int i = 0; i < count; i++)
+        {
+            Vector3d position = origin;
+
+            // Rejection sampling. If the space is too crowded, accept an overlap rather than fail.
+            for (int attempt = 0; attempt < 30; attempt++)
+            {
+                Vector3 offset = landed ? RandomOnDisc(up) : Random.onUnitSphere;
+                position = origin + (Vector3d)offset * Random.Range(minDistance, maxDistance);
+
+                if (!taken.Exists(p => (p - position).magnitude < separation))
+                    break;
+            }
+
+            taken.Add(position);
+
+            if (landed)
+            {
+                body.GetLatLonAlt(position, out double latitude, out double longitude, out _);
+                situations.Add(SpawnSituation.Landed(body, latitude, longitude, randomRotation ? Random.Range(0f, 360f) : heading));
+            }
+            else
+            {
+                Vector3d velocity = vessel.obt_velocity;
+                Orbit orbit = OrbitFromWorldState(body, position, velocity, UT);
+                situations.Add(SpawnSituation.Orbiting(orbit, randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
+            }
+        }
+
+        return situations;
+    }
+
+    private static Vector3 RandomOnDisc(Vector3d normal)
+    {
+        Vector3 direction = Vector3.ProjectOnPlane(Random.onUnitSphere, normal);
+        return direction.sqrMagnitude < 1e-4f ? RandomOnDisc(normal) : direction.normalized;
+    }
+
+    public static float VesselRadius(Vessel vessel)
+    {
+        float radius = 0;
+
+        if (vessel.loaded)
+        {
+            Vector3 center = vessel.transform.position;
+            foreach (Part part in vessel.parts)
+                radius = Mathf.Max(radius, (part.transform.position - center).magnitude);
+        }
+        else
+        {
+            foreach (ProtoPartSnapshot part in vessel.protoVessel.protoPartSnapshots)
+                radius = Mathf.Max(radius, (float)part.position.magnitude);
+        }
+
+        return radius + 2f;
+    }
+
+    #endregion
+}
