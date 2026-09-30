@@ -208,7 +208,7 @@ public class SpawnScreen : MonoBehaviour
 
         // Where.
         DebugUI.Heading(content, "Where");
-        Button[] modes = Tabs(content, Controller.situationMode, "Place", "Nearby", "Orbit", "Landed");
+        Button[] modes = Tabs(content, Controller.situationMode, "Place", "Nearby", "Orbit", "Launch Site");
         Enable(modes[0], () => Controller.CanPlace);
         DebugUI.Tooltip(modes[0], "Pick a location or orbit in map view or vessel view.");
         Enable(modes[1], () => Controller.InFlight);
@@ -238,14 +238,7 @@ public class SpawnScreen : MonoBehaviour
         Toggle(orbit, "Spread Evenly", Controller.spreadAlongOrbit, "Space the vessels out evenly around the orbit, like a constellation. Otherwise they fly in formation.", () => Controller.count.value > 1);
         Toggle(orbit, "Random Rotation", Controller.randomRotation);
 
-        Transform landed = Panel(content, () => Controller.situationMode == Controller.SituationMode.Landed);
-        BodyPicker(landed);
-        SitePicker(landed);
-        Field(landed, Controller.latitude);
-        Field(landed, Controller.longitude);
-        Field(landed, Controller.heading);
-        Enable(DebugUI.Button(Line(landed), "Use Active Vessel", Controller.UseActiveVesselPosition, DebugUI.ControlWidth), () => Controller.InFlight);
-        Toggle(landed, "Random Heading", Controller.randomRotation);
+        SitePicker(Panel(content, () => Controller.situationMode == Controller.SituationMode.LaunchSite));
         DebugUI.Spacer(content, 10);
 
         // Crew.
@@ -315,26 +308,23 @@ public class SpawnScreen : MonoBehaviour
         });
     }
 
+    // Site names are longer than body names.
     private void SitePicker(Transform parent)
     {
-        Stepper(parent, "Site", () => LaunchSites.At(Controller.body.value, Controller.latitude, Controller.longitude)?.name ?? "Anywhere", step =>
+        Stepper(parent, "Site", () => LaunchSites.Named(Controller.launchSite)?.name ?? "None", step =>
         {
-            List<LaunchSites.Site> sites = LaunchSites.On(Controller.body.value);
-            if (sites.Count == 0)
-                return;
-
-            int index = sites.IndexOf(LaunchSites.At(Controller.body.value, Controller.latitude, Controller.longitude));
-            LaunchSites.Site site = sites[index < 0 ? (step > 0 ? 0 : sites.Count - 1) : (index + step + sites.Count) % sites.Count];
-            Controller.SetLanded(site.body, site.latitude, site.longitude, site.heading);
-        });
+            List<LaunchSites.Site> sites = LaunchSites.All;
+            if (sites.Count > 0)
+                Controller.launchSite.Value = sites[(sites.IndexOf(LaunchSites.Named(Controller.launchSite)) + step + sites.Count) % sites.Count].name;
+        }, DebugUI.ControlWidth * 1.5f);
     }
 
-    // "< Kerbin >", as wide as a field.
-    private void Stepper(Transform parent, string title, Func<string> current, Action<int> step)
+    // "< Kerbin >", as wide as a field unless it needs more.
+    private void Stepper(Transform parent, string title, Func<string> current, Action<int> step, float width = DebugUI.ControlWidth)
     {
         Transform row = Line(parent, title);
         DebugUI.Button(row, "<", () => step(-1), 24);
-        TextMeshProUGUI name = Text(DebugUI.Label(row, "", DebugUI.ControlWidth - 56), current);
+        TextMeshProUGUI name = Text(DebugUI.Label(row, "", width - 56), current);
         name.alignment = TextAlignmentOptions.Center;
         DebugUI.Button(row, ">", () => step(1), 24);
     }
@@ -391,7 +381,7 @@ public class SpawnScreen : MonoBehaviour
         {
             Controller.SituationMode.Place => new ITextField[] { Controller.count },
             Controller.SituationMode.Nearby => new ITextField[] { Controller.count, Controller.range },
-            Controller.SituationMode.Landed => new ITextField[] { Controller.count, Controller.body, Controller.latitude, Controller.longitude, Controller.heading },
+            Controller.SituationMode.LaunchSite => new ITextField[] { Controller.count },
             _ => Controller.advancedOrbit
                 ? new ITextField[] { Controller.count, Controller.body, Controller.sma, Controller.eccentricity, Controller.inclination, Controller.lan, Controller.argPe, Controller.meanAnomaly }
                 : new ITextField[] { Controller.count, Controller.body, Controller.altitude, Controller.inclination },
@@ -405,7 +395,7 @@ public class SpawnScreen : MonoBehaviour
 
         int number = Controller.count;
         string what = number == 1 ? template.DisplayName : $"{number} × {template.DisplayName}";
-        List<string> lines = new List<string> { $"{what} {Where(number, problems, warnings)}.", Crew(template, number) };
+        List<string> lines = new List<string> { $"{what} {Where(template, number, problems, warnings)}.", Crew(template, number) };
         ready = problems.Count == 0;
 
         lines.AddRange(Warnings(problems.Concat(warnings)));
@@ -415,7 +405,7 @@ public class SpawnScreen : MonoBehaviour
     private static List<string> Warnings(IEnumerable<string> warnings) =>
         warnings.Select(w => orange + w).ToList();
 
-    private string Where(int number, List<string> problems, List<string> warnings)
+    private string Where(VesselTemplate template, int number, List<string> problems, List<string> warnings)
     {
         CelestialBody body = Controller.body.value;
         string bodyName = body?.displayName.LocalizeRemoveGender();
@@ -432,18 +422,19 @@ public class SpawnScreen : MonoBehaviour
                 bool ground = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH;
                 return $"{(number > 1 ? "scattered" : "placed at random")} within {Controller.range.value:0} m of {active.GetDisplayName()}, {(ground ? "on the ground" : "in orbit")}";
 
-            case Controller.SituationMode.Landed:
-                if (body.pqsController == null)
-                    problems.Add($"{bodyName} has no surface.");
-                if (C.placementTool.PreviewBlocked)
-                    warnings.Add("That's on top of another vessel.");
+            case Controller.SituationMode.LaunchSite:
+                LaunchSites.Site site = LaunchSites.Named(Controller.launchSite);
+                if (site == null)
+                {
+                    problems.Add("There are no launch sites.");
+                    return "";
+                }
 
-                string site = LaunchSites.At(body, Controller.latitude, Controller.longitude)?.name;
-                string biome = ScienceUtil.GetExperimentBiomeLocalized(body, Controller.latitude, Controller.longitude);
-                string place = site != null ? $"at the {site} on {bodyName}"
-                    : string.IsNullOrEmpty(biome) ? $"on {bodyName} at {Controller.latitude.value:0.###}°, {Controller.longitude.value:0.###}°"
-                    : $"on {bodyName}'s {biome}";
-                return $"{(number > 1 ? "side by side " : "")}{place}";
+                List<SpawnSituation> situations = C.PreviewSituations(template);
+                if (situations != null && PlacementTool.Clearance(template, situations, out Vessel there) < 0.5f)
+                    warnings.Add($"{there.GetDisplayName()} is in the way.");
+
+                return $"{(number > 1 ? "side by side " : "")}at the {site.name} on {site.body.displayName.LocalizeRemoveGender()}";
 
             default:
                 Orbit orbit;

@@ -14,7 +14,6 @@ internal class Craft
     public string name; // The file's name, as the stock craft browser shows it.
     public string facility; // VAB or SPH
     public DateTime modified;
-    public string thumbnailPath;
     public bool elsewhere; // Not in the save or the game's own Ships folder.
 
     private string displayName;
@@ -61,13 +60,14 @@ internal class Craft
     {
         get
         {
-            if (!thumbnailLoaded && thumbnailPath != null)
+            if (!thumbnailLoaded)
             {
                 thumbnailLoaded = true;
-                if (File.Exists(thumbnailPath))
+                string file = CraftList.ThumbnailPath(path, name, facility);
+                if (File.Exists(file))
                 {
                     thumbnail = new Texture2D(2, 2);
-                    thumbnail.LoadImage(File.ReadAllBytes(thumbnailPath), markNonReadable: true);
+                    thumbnail.LoadImage(File.ReadAllBytes(file), markNonReadable: true);
                 }
             }
 
@@ -109,9 +109,9 @@ internal static class CraftList
         foreach (string facility in new[] { "VAB", "SPH" })
         {
             if (HighLogic.SaveFolder != null)
-                AddFolder(craft, Path.Combine(root, "saves", HighLogic.SaveFolder, "Ships"), facility, stock: false);
+                AddFolder(craft, Path.Combine(root, "saves", HighLogic.SaveFolder, "Ships", facility), facility);
 
-            AddFolder(craft, Path.Combine(root, "Ships"), facility, stock: true);
+            AddFolder(craft, Path.Combine(root, "Ships", facility), facility);
         }
 
         foreach (string path in Recent())
@@ -121,10 +121,9 @@ internal static class CraftList
         return craft.OrderByDescending(c => c.modified).ToList();
     }
 
-    private static void AddFolder(List<Craft> craft, string ships, string facility, bool stock)
+    private static void AddFolder(List<Craft> craft, string folder, string facility)
     {
-        ships = Path.GetFullPath(ships);
-        string folder = Path.Combine(ships, facility);
+        folder = Path.GetFullPath(folder);
         if (!Directory.Exists(folder))
             return;
 
@@ -137,14 +136,27 @@ internal static class CraftList
                 entry = known[path] = new Craft { path = path, name = Path.GetFileNameWithoutExtension(path), facility = facility, modified = modified };
             }
 
-            // Worked out here rather than by ShipConstruction.GetPlayerCraftThumbnailName, which loads
-            // the whole craft file to find out which editor it's from.
-            entry.thumbnailPath ??= Path.Combine(KSPUtil.ApplicationRootPath, stock
-                ? $"Ships/@thumbs/{facility}/{KSPUtil.SanitizeFilename(entry.name)}.png"
-                : "thumbs/" + ShipConstruction.GetPlayerCraftThumbnailName(HighLogic.SaveFolder, Path.GetDirectoryName(path).Substring(ships.Length), entry.name) + ".png");
-
             craft.Add(entry);
         }
+    }
+
+    // Where the editor keeps its picture of a craft, if it's one of the game's or the save's. Worked out here
+    // rather than by ShipConstruction.GetPlayerCraftThumbnailName, which loads the whole craft file to find
+    // out which editor it's from.
+    public static string ThumbnailPath(string path, string name, string facility)
+    {
+        string root = Path.GetFullPath(KSPUtil.ApplicationRootPath);
+        string stock = Path.Combine(root, "Ships");
+        string save = HighLogic.SaveFolder != null ? Path.Combine(root, "saves", HighLogic.SaveFolder, "Ships") : null;
+        bool In(string folder) => folder != null && path.StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+        if (facility == null)
+            return null;
+        if (In(stock))
+            return Path.Combine(root, $"Ships/@thumbs/{facility}/{KSPUtil.SanitizeFilename(name)}.png");
+        if (In(save))
+            return Path.Combine(root, "thumbs/" + ShipConstruction.GetPlayerCraftThumbnailName(HighLogic.SaveFolder, Path.GetDirectoryName(path).Substring(save.Length), name) + ".png");
+        return null;
     }
 
     // A craft file from anywhere. Asked for every frame, so it doesn't look at the file again once it's

@@ -15,9 +15,9 @@ It's a cheat, so it lives with the stock cheats: **Spawn Vessels**, under Cheats
 - **Place** lets you point at where you want them. See below.
 - **Nearby** scatters vessels around the active vessel. In orbit they match its velocity. On the ground they're spread out around it.
 - **Orbit** puts vessels in the orbit you describe, simply by altitude and inclination, or with every orbital element. Several vessels can be spread evenly around the orbit like a constellation, or flown in a tidy formation. **Match Active Vessel** and **Match Target** copy their orbits.
-- **Landed** puts vessels on the ground, side by side if there are several. The **Site** arrows go through the launch sites: the runway, the launch pad, and Making History's sites. **Use Active Vessel's Position** copies where you are.
+- **Launch Site** puts vessels on the runway, the launch pad, or one of Making History's sites, facing the right way, side by side if there are several.
 
-A sentence under the settings says exactly what **Spawn** will do, and what's wrong if it can't. **Landed** shows see-through ghosts of the vessels in the flight view, and markers on the planet in map view; the ghosts turn red if they'd land on top of another vessel. **Orbit** draws the orbit in map view, with a marker for each vessel.
+A sentence under the settings says exactly what **Spawn** will do, and what's wrong if it can't, like another vessel being in the way. **Orbit** draws the orbit in map view, with a marker for each vessel.
 
 ### Placing
 

@@ -28,7 +28,7 @@ public class Controller : MonoBehaviour
     public static readonly TextField<int> count = new TextField<int>("Count", "1", TextField<int>.ParseInt, c => c > 0 && c <= 1000);
 
     // Situation.
-    public enum SituationMode { Place, Nearby, Orbit, Landed }
+    public enum SituationMode { Place, Nearby, Orbit, LaunchSite }
     public static readonly Setting<SituationMode> situationMode = SituationMode.Place;
     public static readonly Setting<bool> randomRotation = false;
     public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", FindBody);
@@ -47,10 +47,8 @@ public class Controller : MonoBehaviour
     public static readonly TextField<double> meanAnomaly = new TextField<double>("Mean Anomaly (°)", "0", TextField<double>.ParseDouble, tooltip: "Where along the orbit the vessel is, right now.");
     public static readonly Setting<bool> spreadAlongOrbit = true;
 
-    // Landed.
-    public static readonly TextField<double> latitude = new TextField<double>("Latitude (°)", "-0.0486", TextField<double>.ParseDouble, l => l >= -90 && l <= 90);
-    public static readonly TextField<double> longitude = new TextField<double>("Longitude (°)", "-74.7200", TextField<double>.ParseDouble);
-    public static readonly TextField<float> heading = new TextField<float>("Heading (°)", "90", TextField<float>.ParseFloat, tooltip: "Which way the vessel's nose points, clockwise from north.");
+    // Launch site, by name.
+    public static readonly Setting<string> launchSite = "";
 
     // Crew.
     public static readonly Setting<CrewMode> crewMode = CrewMode.Pilot;
@@ -311,7 +309,7 @@ public class Controller : MonoBehaviour
     {
         List<SpawnSituation> situations = new List<SpawnSituation>();
 
-        if (situationMode != SituationMode.Nearby && !body.Valid)
+        if (situationMode == SituationMode.Orbit && !body.Valid)
             throw new SpawnException($"There's no celestial body called {body.Text}.");
 
         switch (situationMode.Value)
@@ -338,8 +336,9 @@ public class Controller : MonoBehaviour
 
                 break;
 
-            case SituationMode.Landed:
-                return Formations.LandedRow(template, body.value, latitude, longitude, heading, number, randomRotation && !preview);
+            case SituationMode.LaunchSite:
+                LaunchSites.Site site = LaunchSites.Named(launchSite) ?? throw new SpawnException("There are no launch sites.");
+                return Formations.LandedRow(template, site.body, site.latitude, site.longitude, site.heading, number, false);
         }
 
         return situations;
@@ -355,12 +354,6 @@ public class Controller : MonoBehaviour
             return new Orbit(inclination, eccentricity, sma, lan, argPe, (meanAnomaly + meanAnomalyOffset) * Mathf.Deg2Rad, UT, b);
         else
             return new Orbit(inclination, 0, b.Radius + altitude, 0, 0, meanAnomalyOffset * Mathf.Deg2Rad, UT, b);
-    }
-
-    internal static void UseActiveVesselPosition()
-    {
-        Vessel vessel = FlightGlobals.ActiveVessel;
-        SetLanded(vessel.mainBody, vessel.latitude, vessel.longitude, Placement.Heading(vessel));
     }
 
     private static CelestialBody FindBody(string name)
@@ -467,14 +460,6 @@ public class Controller : MonoBehaviour
 
         if (spawnRoutine == null)
             spawnRoutine = StartCoroutine(SpawnRoutine(situations));
-    }
-
-    internal static void SetLanded(CelestialBody landedBody, double lat, double lon, float newHeading)
-    {
-        body.Text = landedBody.bodyName;
-        latitude.Text = lat.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
-        longitude.Text = lon.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
-        heading.Text = newHeading.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     // Describe an orbit in the advanced orbit fields.

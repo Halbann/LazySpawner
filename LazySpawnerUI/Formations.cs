@@ -8,8 +8,8 @@ namespace LazySpawner;
 // How the window arranges several vessels at once. These are the UI's opinions, not the backend's.
 internal static class Formations
 {
-    // A row, side by side, centred on the coordinates.
-    public static List<SpawnSituation> LandedRow(VesselTemplate template, CelestialBody body, double latitude, double longitude, float heading, int number, bool randomHeading)
+    // A row, side by side, centred on the coordinates. Spaced for any heading if they'll be turned at random later.
+    public static List<SpawnSituation> LandedRow(VesselTemplate template, CelestialBody body, double latitude, double longitude, float heading, int number, bool anyHeading)
     {
         List<SpawnSituation> situations = new List<SpawnSituation>();
         Vector3d centre = body.GetWorldSurfacePosition(latitude, longitude, 0);
@@ -17,8 +17,8 @@ internal static class Formations
 
         // Side by side with a few metres between them, however wide the vessel is across the row.
         Bounds bounds = template.LandedBounds;
-        float width = randomHeading
-            ? new Vector2(bounds.extents.x, bounds.extents.z).magnitude * 2 + bounds.center.magnitude
+        float width = anyHeading
+            ?new Vector2(bounds.extents.x, bounds.extents.z).magnitude * 2 + bounds.center.magnitude
             : Box.Of(template, SpawnSituation.Landed(body, latitude, longitude, heading)).Extent(side) * 2;
         float spacing = width + 4f;
 
@@ -28,7 +28,7 @@ internal static class Formations
             if (number > 1)
                 body.GetLatLonAlt(centre + (Vector3d)side * ((i - (number - 1) * 0.5f) * spacing), out lat, out lon, out _);
 
-            situations.Add(SpawnSituation.Landed(body, lat, lon, randomHeading ? Random.Range(0f, 360f) : heading));
+            situations.Add(SpawnSituation.Landed(body, lat, lon, heading));
         }
 
         return situations;

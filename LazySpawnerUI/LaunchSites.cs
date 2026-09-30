@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace LazySpawner;
 
-// The stock launch sites, and Making History's, as places to put landed vessels.
+// The stock launch sites, and Making History's, as places to put vessels.
 internal static class LaunchSites
 {
     public class Site
@@ -17,20 +17,13 @@ internal static class LaunchSites
 
     private static List<Site> all;
 
-    public static List<Site> On(CelestialBody body) =>
-        (all ??= Find()).Where(s => s.body == body).ToList();
+    public static List<Site> All => all ??= Load();
 
-    // The site at these coordinates, give or take a few metres.
-    public static Site At(CelestialBody body, double latitude, double longitude)
-    {
-        if (body == null)
-            return null;
+    // The site with this name, or the first one.
+    public static Site Named(string name) =>
+        All.FirstOrDefault(s => s.name == name) ?? All.FirstOrDefault();
 
-        Vector3d position = body.GetRelSurfacePosition(latitude, longitude, 0);
-        return On(body).FirstOrDefault(s => (body.GetRelSurfacePosition(s.latitude, s.longitude, 0) - position).magnitude < 20);
-    }
-
-    private static List<Site> Find()
+    private static List<Site> Load()
     {
         List<Site> sites = new List<Site>();
         PSystemSetup setup = PSystemSetup.Instance;

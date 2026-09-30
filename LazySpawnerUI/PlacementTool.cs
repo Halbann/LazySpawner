@@ -10,8 +10,6 @@ namespace LazySpawner;
 // Shows where vessels will appear, and lets the player point at where they want them.
 //
 // Previews, whenever the window is open:
-// - Landed, flight view: a ghost of each vessel at the coordinates.
-// - Landed, map view: a marker on the planet for each vessel.
 // - Orbit, map view: the orbit, with a marker for each vessel.
 //
 // Placing, after pressing Place, goes by whatever is under the mouse:
@@ -28,9 +26,6 @@ public class PlacementTool : MonoBehaviour
 
     public bool Placing { get; private set; }
     private Kind kind;
-
-    // Whether the previewed vessels would land on top of another vessel.
-    public bool PreviewBlocked { get; private set; }
 
     private const string lockID = "LazySpawnerPlacement";
     private const int maxGhosts = 25;
@@ -107,7 +102,6 @@ public class PlacementTool : MonoBehaviour
     protected void LateUpdate()
     {
         markers.Clear();
-        PreviewBlocked = false;
         int ghostsUsed = 0;
         bool lineUsed = false;
 
@@ -130,8 +124,8 @@ public class PlacementTool : MonoBehaviour
 
             if (Placing)
                 UpdatePlacing(template, map, ref ghostsUsed, ref lineUsed);
-            else
-                UpdatePreview(template, map, ref ghostsUsed, ref lineUsed);
+            else if (map && Controller.situationMode == Controller.SituationMode.Orbit)
+                lineUsed = PreviewOrbit(template);
         }
         catch (Exception e)
         {
@@ -148,37 +142,15 @@ public class PlacementTool : MonoBehaviour
         }
     }
 
-    private void UpdatePreview(VesselTemplate template, bool map, ref int ghostsUsed, ref bool lineUsed)
+    private bool PreviewOrbit(VesselTemplate template)
     {
-        switch (Controller.situationMode.Value)
-        {
-            case Controller.SituationMode.Landed:
-                List<SpawnSituation> landed = gui.PreviewSituations(template);
-                if (landed == null)
-                    return;
+        List<SpawnSituation> orbits = gui.PreviewSituations(template);
+        if (orbits == null || orbits.Count == 0)
+            return false;
 
-                if (map)
-                    AddMarkers(landed);
-                else
-                {
-                    PreviewBlocked = Clearance(template, landed, out _) < 0.5f;
-                    ShowGhosts(template, landed, ref ghostsUsed, PreviewBlocked ? Ghost.invalidColor : Ghost.validColor);
-                }
-                break;
-
-            case Controller.SituationMode.Orbit:
-                if (!map)
-                    return;
-
-                List<SpawnSituation> orbits = gui.PreviewSituations(template);
-                if (orbits == null || orbits.Count == 0)
-                    return;
-
-                DrawOrbit(orbits[0].orbit);
-                lineUsed = true;
-                AddMarkers(orbits);
-                break;
-        }
+        DrawOrbit(orbits[0].orbit);
+        AddMarkers(orbits);
+        return true;
     }
 
     private void UpdatePlacing(VesselTemplate template, bool map, ref int ghostsUsed, ref bool lineUsed)
@@ -283,7 +255,7 @@ public class PlacementTool : MonoBehaviour
         CelestialBody body = active.mainBody;
         body.GetLatLonAlt(hit.point, out double latitude, out double longitude, out _);
 
-        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, false);
+        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, Controller.randomRotation);
 
         // Steep ground tips things over, and overlapping vessels explode.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
@@ -382,7 +354,7 @@ public class PlacementTool : MonoBehaviour
             return true;
         }
 
-        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, false);
+        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, Controller.randomRotation);
         placeValid = true;
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
@@ -480,7 +452,7 @@ public class PlacementTool : MonoBehaviour
 
     // The smallest gap between any of the vessels being placed and any loaded vessel, measured between
     // their boxes. Negative if they overlap.
-    private static float Clearance(VesselTemplate template, List<SpawnSituation> situations, out Vessel nearest)
+    internal static float Clearance(VesselTemplate template, List<SpawnSituation> situations, out Vessel nearest)
     {
         nearest = null;
         float smallest = float.MaxValue;
