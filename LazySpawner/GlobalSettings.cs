@@ -127,6 +127,13 @@ internal class GlobalSettings : MonoBehaviour
         ApplyAll(lazy: false);
     }
 
+    // After a hot reload the new copy of every setting is back at its default.
+    private static void OnHotLoad()
+    {
+        Load();
+        ApplyAll(lazy: false);
+    }
+
     private static void Reflect()
     {
         locatedFields = true;

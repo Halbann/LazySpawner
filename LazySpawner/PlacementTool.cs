@@ -22,7 +22,9 @@ public class PlacementTool : MonoBehaviour
 {
     public IMGUI gui;
 
-    public enum Kind { None, Ground, Space, Map }
+    public enum Kind { None, Ground, Space, Map, MapOrbit }
+
+    private bool IsMapKind => Placing == Kind.Map || Placing == Kind.MapOrbit;
     public Kind Placing { get; private set; } = Kind.None;
 
     private const string lockID = "LazySpawnerPlacement";
@@ -44,6 +46,7 @@ public class PlacementTool : MonoBehaviour
     private bool placeValid;
     private string placeInfo;
     private float placeHeading;
+    private bool reverseOrbit;
     private Vector3 rightClickStart;
     private float rightClickTime;
     private GUIStyle hintStyle;
@@ -120,11 +123,11 @@ public class PlacementTool : MonoBehaviour
             bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
 
             // Placing only makes sense in the view it started in.
-            if (Placing == Kind.Map != map && Placing != Kind.None)
+            if (IsMapKind != map && Placing != Kind.None)
                 Stop();
 
             if (Placing != Kind.None)
-                UpdatePlacing(template, ref ghostsUsed);
+                UpdatePlacing(template, ref ghostsUsed, ref lineUsed);
             else
                 UpdatePreview(template, map, ref ghostsUsed, ref lineUsed);
         }
@@ -155,7 +158,7 @@ public class PlacementTool : MonoBehaviour
                 if (map)
                     AddMarkers(landed);
                 else
-                    ShowGhosts(template, landed, ref ghostsUsed, Ghost.validColor);
+                    ShowGhosts(template, landed, ref ghostsUsed, IsClear(template, landed) ? Ghost.validColor : Ghost.invalidColor);
                 break;
 
             case IMGUI.SituationMode.Orbit:
@@ -173,11 +176,19 @@ public class PlacementTool : MonoBehaviour
         }
     }
 
-    private void UpdatePlacing(VesselTemplate template, ref int ghostsUsed)
+    private void UpdatePlacing(VesselTemplate template, ref int ghostsUsed, ref bool lineUsed)
     {
-        // Turn.
-        float turn = (Input.GetKey(KeyCode.E) ? 1 : 0) - (Input.GetKey(KeyCode.Q) ? 1 : 0);
-        placeHeading = (placeHeading + turn * 90f * Time.unscaledDeltaTime + 360f) % 360f;
+        // Turn, or reverse an orbit.
+        if (Placing == Kind.MapOrbit)
+        {
+            if (Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.E))
+                reverseOrbit = !reverseOrbit;
+        }
+        else
+        {
+            float turn = (Input.GetKey(KeyCode.E) ? 1 : 0) - (Input.GetKey(KeyCode.Q) ? 1 : 0);
+            placeHeading = (placeHeading + turn * 90f * Time.unscaledDeltaTime + 360f) % 360f;
+        }
 
         // Stop on escape, or on a right click that wasn't a camera drag.
         if (Input.GetKeyDown(KeyCode.Escape))
@@ -206,12 +217,19 @@ public class PlacementTool : MonoBehaviour
             case Kind.Ground: PlaceOnGround(template); break;
             case Kind.Space: PlaceInSpace(template); break;
             case Kind.Map: PlaceOnMap(template); break;
+            case Kind.MapOrbit: PlaceOrbit(template); break;
         }
 
         if (placed == null)
             return;
 
-        if (Placing == Kind.Map)
+        if (Placing == Kind.MapOrbit)
+        {
+            DrawOrbit(placed[0].orbit);
+            lineUsed = true;
+            AddMarkers(placed);
+        }
+        else if (Placing == Kind.Map)
             AddMarkers(placed);
         else
             ShowGhosts(template, placed, ref ghostsUsed, placeValid ? Ghost.validColor : Ghost.invalidColor);
@@ -224,7 +242,9 @@ public class PlacementTool : MonoBehaviour
             List<SpawnSituation> situations = placed;
             bool keepPlacing = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
-            if (situations[0].landed)
+            if (Placing == Kind.MapOrbit)
+                gui.SetOrbit(situations[0].orbit);
+            else if (situations[0].landed)
                 gui.SetLanded(situations[0].body, situations[0].latitude, situations[0].longitude, placeHeading, Placing != Kind.Ground || IMGUI.situationMode != IMGUI.SituationMode.Nearby);
 
             gui.SpawnAt(situations);
@@ -353,6 +373,78 @@ public class PlacementTool : MonoBehaviour
         string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · on the water" : "";
         placeInfo = $"{Localizer.Format(template.name)} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
             $"{latitude:F3}°, {longitude:F3}° · heading {placeHeading:F0}°";
+    }
+
+    // A circular orbit through the point under the mouse, in the plane facing the camera.
+    // Look down on the north pole for an equatorial orbit, from the side for a polar one.
+    private void PlaceOrbit(VesselTemplate template)
+    {
+        CelestialBody body = MapBody();
+        if (body == null)
+            return;
+
+        Camera camera = PlanetariumCamera.Camera;
+        Ray ray = camera.ScreenPointToRay(MousePosition);
+        Vector3 centre = body.scaledBody.transform.position;
+        Vector3 facing = camera.transform.forward;
+
+        if (!new Plane(facing, centre).Raycast(ray, out float enter))
+            return;
+
+        Vector3d radial = ((Vector3d)(ray.GetPoint(enter) - centre)) * ScaledSpace.ScaleFactor;
+        double radius = radial.magnitude;
+        double altitude = radius - body.Radius;
+        string name = body.displayName.LocalizeRemoveGender();
+
+        if (radius <= body.Radius)
+        {
+            placeInfo = $"Point further out from {name}.";
+            return;
+        }
+
+        if (radius >= body.sphereOfInfluence)
+        {
+            placeInfo = $"That's outside {name}'s sphere of influence.";
+            return;
+        }
+
+        // Anticlockwise as seen by the camera, like most orbits seen from the north. Q/E reverse it.
+        // Unity is left-handed, so a normal pointing away from the camera is anticlockwise on screen.
+        Vector3d normal = reverseOrbit ? -(Vector3d)facing : (Vector3d)facing;
+        Vector3d prograde = Vector3d.Cross(normal, radial).normalized;
+        double speed = Math.Sqrt(body.gravParameter / radius);
+
+        double UT = Planetarium.GetUniversalTime();
+        Orbit orbit = Placement.OrbitFromWorldState(body, body.position + radial, prograde * speed, UT);
+
+        int number = IMGUI.count.Valid ? IMGUI.count.value : 1;
+        placed = new List<SpawnSituation>();
+        for (int i = 0; i < number; i++)
+        {
+            Orbit spread = i == 0 ? orbit : new Orbit(orbit.inclination, orbit.eccentricity, orbit.semiMajorAxis, orbit.LAN, orbit.argumentOfPeriapsis,
+                orbit.meanAnomalyAtEpoch + 2 * Math.PI * i / number, orbit.epoch, body);
+            placed.Add(SpawnSituation.Orbiting(spread, IMGUI.randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
+        }
+
+        bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
+        placeValid = true;
+        placeInfo = $"{Localizer.Format(template.name)} · {name} · altitude {FormatDistance((float)altitude)} · inclination {orbit.inclination:F1}°" +
+            (inAtmosphere ? "\n<color=#ff7766>Inside the atmosphere</color>" : "");
+    }
+
+    // The body the map is looking at, or the one in the window.
+    private static CelestialBody MapBody()
+    {
+        MapObject target = PlanetariumCamera.fetch?.target;
+        if (target != null)
+        {
+            if (target.celestialBody != null)
+                return target.celestialBody;
+            if (target.vessel != null)
+                return target.vessel.mainBody;
+        }
+
+        return IMGUI.body.Valid ? IMGUI.body.value : null;
     }
 
     private static bool RaySphere(Ray ray, Vector3 centre, float radius, out float distance)
@@ -587,7 +679,9 @@ public class PlacementTool : MonoBehaviour
             padding = new RectOffset(8, 8, 6, 6),
         };
 
-        string controls = Placing == Kind.Space
+        string controls = Placing == Kind.MapOrbit
+            ? "Click to spawn · Turn the camera to tilt the orbit · Q/E to reverse · Right-click to stop"
+            : Placing == Kind.Space
             ? "Click to spawn · Shift-click to keep going · Right-click to stop"
             : "Click to spawn · Q/E to turn · Shift-click to keep going · Right-click to stop";
 

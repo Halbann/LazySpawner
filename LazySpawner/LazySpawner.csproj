@@ -21,6 +21,10 @@
 	<ItemGroup>
 		<Publicize Include="Assembly-CSharp" />
 	</ItemGroup>
+	<!-- Debug builds can be hot reloaded in game with HotReloadKSP. -->
+	<ItemGroup Condition="'$(Configuration)' == 'Debug'">
+		<AssemblyMetadata Include="HotReload" Value="true" />
+	</ItemGroup>
 	<!-- Version Files -->
 	<ItemGroup>
 		<KSPVersionFile Include="$(RepoRoot)LazySpawner.version">

@@ -77,8 +77,8 @@ public class IMGUI : MonoBehaviour
     public static readonly Setting<bool> spreadAlongOrbit = true;
 
     // Landed.
-    public static readonly TextField<double> latitude = new TextField<double>("Latitude (°)", "-0.0972", TextField<double>.ParseDouble, l => l >= -90 && l <= 90);
-    public static readonly TextField<double> longitude = new TextField<double>("Longitude (°)", "-74.5577", TextField<double>.ParseDouble);
+    public static readonly TextField<double> latitude = new TextField<double>("Latitude (°)", "-0.0486", TextField<double>.ParseDouble, l => l >= -90 && l <= 90);
+    public static readonly TextField<double> longitude = new TextField<double>("Longitude (°)", "-74.7200", TextField<double>.ParseDouble);
     public static readonly TextField<float> heading = new TextField<float>("Heading (°)", "90", TextField<float>.ParseFloat, tooltip: "Which way the vessel's nose points, clockwise from north.");
 
     // Crew.
@@ -133,7 +133,8 @@ public class IMGUI : MonoBehaviour
         windowTitle = $"Lazy Spawner v{version.Major}.{version.Minor}.{version.Build}";
 
         clickBlocker = ClickBlocker.Create(UIMasterController.Instance.mainCanvas, nameof(LazySpawner));
-        placementTool = gameObject.AddComponent<PlacementTool>();
+        // A hot reload brings the old one across.
+        placementTool = GetComponent<PlacementTool>() ?? gameObject.AddComponent<PlacementTool>();
         placementTool.gui = this;
 
         // Fields that parse into game objects need the game to have loaded first.
@@ -972,6 +973,25 @@ public class IMGUI : MonoBehaviour
             situationMode.Value = SituationMode.Landed;
     }
 
+    // Describe an orbit in the window's advanced orbit fields.
+    internal void SetOrbit(Orbit orbit)
+    {
+        string F(double value) => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+        body.Text = orbit.referenceBody.bodyName;
+        advancedOrbit.Value = true;
+        sma.Text = F(orbit.semiMajorAxis / 1000);
+        eccentricity.Text = F(orbit.eccentricity);
+        inclination.Text = F(orbit.inclination);
+        lan.Text = F(orbit.LAN);
+        argPe.Text = F(orbit.argumentOfPeriapsis);
+
+        // The fields' epoch is always now.
+        double meanAnomalyNow = orbit.getObtAtUT(Planetarium.GetUniversalTime()) * 2 * Math.PI / orbit.period;
+        meanAnomaly.Text = F((meanAnomalyNow * Mathf.Rad2Deg % 360 + 360) % 360);
+        situationMode.Value = SituationMode.Orbit;
+    }
+
     // Which kind of placing the Place button starts, if any.
     private PlacementTool.Kind PlaceKind()
     {
@@ -981,6 +1001,8 @@ public class IMGUI : MonoBehaviour
         {
             case SituationMode.Landed:
                 return map ? PlacementTool.Kind.Map : InFlight ? PlacementTool.Kind.Ground : PlacementTool.Kind.None;
+            case SituationMode.Orbit:
+                return map ? PlacementTool.Kind.MapOrbit : PlacementTool.Kind.None;
             case SituationMode.Nearby:
                 if (!InFlight || map)
                     return PlacementTool.Kind.None;
@@ -1002,6 +1024,7 @@ public class IMGUI : MonoBehaviour
         string tooltip = kind switch
         {
             PlacementTool.Kind.Map => "Click on any planet or moon to spawn there.",
+            PlacementTool.Kind.MapOrbit => "Point anywhere around the planet to pick an orbit, then click to spawn.",
             PlacementTool.Kind.Ground => "Click on the ground to spawn there.",
             _ => "Click in space around the active vessel to spawn there.",
         };

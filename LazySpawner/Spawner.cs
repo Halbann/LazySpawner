@@ -61,13 +61,22 @@ public static class Spawner
         ProtoVessel protoVessel = new ProtoVessel(node, HighLogic.CurrentGame);
         double prepared = timer.Elapsed.TotalMilliseconds;
 
-        Populate(protoVessel, crew, situation);
+        try
+        {
+            Populate(protoVessel, crew, situation);
 
-        // The control point depends on where the crew are.
-        if (!keptReference)
-            EstablishReferenceTransform(protoVessel);
+            // The control point depends on where the crew are.
+            if (!keptReference)
+                EstablishReferenceTransform(protoVessel);
 
-        Place(protoVessel, template, situation);
+            Place(protoVessel, template, situation);
+        }
+        catch
+        {
+            // Don't leave kerbals assigned to a vessel that never made it.
+            Discard(protoVessel);
+            throw;
+        }
 
         Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")} in {timer.Elapsed.TotalMilliseconds:F1} ms ({prepared:F1} ms to prepare).");
 
@@ -112,6 +121,26 @@ public static class Spawner
         vessel.Die();
 
         return true;
+    }
+
+    private static void Discard(ProtoVessel protoVessel)
+    {
+        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+
+        foreach (ProtoCrewMember crew in protoVessel.GetVesselCrew().ToList())
+        {
+            crew.seatIdx = -1;
+
+            if (hiredKerbals.Remove(crew.name))
+                roster.Remove(crew);
+            else
+                crew.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+        }
+
+        HighLogic.CurrentGame.flightState.protoVessels.Remove(protoVessel);
+
+        if (protoVessel.vesselRef != null)
+            protoVessel.vesselRef.Die();
     }
 
     #endregion

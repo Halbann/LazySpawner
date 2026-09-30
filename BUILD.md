@@ -13,3 +13,8 @@ Other ways to set the game path: https://kspbuildtools.readthedocs.io/en/stable/
 1. Follow steps 1 and 2 from above.
 2. Bump `<Version>` in `LazySpawner/LazySpawner.csproj`.
 3. Run `.\release.ps1`.
+
+# Developing LazySpawner
+
+Debug builds opt in to [HotReloadKSP](https://github.com/KSPModdingLibs/HotReloadKSP): with it installed, rebuild and reload LazySpawner from its menu without restarting the game. Settings carry over, and the window reopens where it was.
+
