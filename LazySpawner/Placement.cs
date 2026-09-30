@@ -147,51 +147,76 @@ public static class Placement
     #region Nearby
 
     // Spread out vessels around a vessel, either around it in orbit or on the ground around it,
-    // keeping them clear of the vessel and of each other.
+    // keeping them clear of it, of other vessels, and of each other.
     public static List<SpawnSituation> Nearby(Vessel vessel, VesselTemplate template, int count, float range, bool randomRotation)
     {
+        const float margin = 3f;
+        const int attempts = 50;
+
         List<SpawnSituation> situations = new List<SpawnSituation>();
-        List<Vector3d> taken = new List<Vector3d>();
-
-        float vesselRadius = VesselRadius(vessel);
-        float minDistance = vesselRadius + template.radius + 5f;
-        float maxDistance = Mathf.Max(range, minDistance + template.radius * 2f);
-        float separation = template.radius * 2f + 2f;
-
         bool landed = vessel.LandedOrSplashed || vessel.situation == Vessel.Situations.PRELAUNCH;
+        Bounds bounds = template.BoundsFor(landed);
+
+        VesselBounds.Box activeBox = VesselBounds.Box.Of(vessel);
+        List<VesselBounds.Box> taken = new List<VesselBounds.Box> { activeBox };
+        foreach (Vessel other in FlightGlobals.VesselsLoaded)
+            if (other != vessel)
+                taken.Add(VesselBounds.Box.Of(other));
+
+        // Centre to centre, from where the vessels would just touch out to the range.
+        float closest = activeBox.Radius() * 0.5f;
+        float furthest = Mathf.Max(range, activeBox.Radius() + template.Radius(landed) + margin * 2);
+
         CelestialBody body = vessel.mainBody;
         double UT = Planetarium.GetUniversalTime();
-        Vector3d origin = vessel.GetWorldPos3D();
         Vector3d up = body.GetSurfaceNVector(vessel.latitude, vessel.longitude);
         float heading = Heading(vessel);
 
         for (int i = 0; i < count; i++)
         {
-            Vector3d position = origin;
+            SpawnSituation best = null;
+            VesselBounds.Box bestBox = default;
+            float bestGap = float.MinValue;
 
-            // Rejection sampling. If the space is too crowded, accept an overlap rather than fail.
-            for (int attempt = 0; attempt < 30; attempt++)
+            // Rejection sampling. If the space is too crowded, take the roomiest spot found.
+            for (int attempt = 0; attempt < attempts && bestGap < margin; attempt++)
             {
-                Vector3 offset = landed ? RandomOnDisc(up) : Random.onUnitSphere;
-                position = origin + (Vector3d)offset * Random.Range(minDistance, maxDistance);
+                Vector3 direction = landed ? RandomOnDisc(up) : Random.onUnitSphere;
+                Vector3d position = (Vector3d)activeBox.centre + (Vector3d)direction * Random.Range(closest, furthest);
 
-                if (!taken.Exists(p => (p - position).magnitude < separation))
-                    break;
+                SpawnSituation situation;
+                VesselBounds.Box box;
+
+                if (landed)
+                {
+                    body.GetLatLonAlt(position, out double latitude, out double longitude, out _);
+                    situation = SpawnSituation.Landed(body, latitude, longitude, randomRotation ? Random.Range(0f, 360f) : heading);
+                    Spawner.LandedPose pose = Spawner.GetLandedPose(template, situation, template.ReferenceRotation);
+                    box = new VesselBounds.Box(bounds, pose.position, pose.rotation);
+                }
+                else
+                {
+                    Orbit orbit = OrbitFromWorldState(body, position, vessel.obt_velocity, UT);
+                    Quaternion rotation = randomRotation ? Random.rotation : Prograde(orbit, UT, template.ReferenceRotation);
+                    situation = SpawnSituation.Orbiting(orbit, OrbitRotation.Fixed);
+                    situation.worldRotation = rotation;
+                    box = new VesselBounds.Box(bounds, position, rotation);
+                }
+
+                float gap = float.MaxValue;
+                foreach (VesselBounds.Box other in taken)
+                    gap = Mathf.Min(gap, box.Gap(other));
+
+                if (gap > bestGap)
+                {
+                    bestGap = gap;
+                    best = situation;
+                    bestBox = box;
+                }
             }
 
-            taken.Add(position);
-
-            if (landed)
-            {
-                body.GetLatLonAlt(position, out double latitude, out double longitude, out _);
-                situations.Add(SpawnSituation.Landed(body, latitude, longitude, randomRotation ? Random.Range(0f, 360f) : heading));
-            }
-            else
-            {
-                Vector3d velocity = vessel.obt_velocity;
-                Orbit orbit = OrbitFromWorldState(body, position, velocity, UT);
-                situations.Add(SpawnSituation.Orbiting(orbit, randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
-            }
+            situations.Add(best);
+            taken.Add(bestBox);
         }
 
         return situations;
@@ -201,25 +226,6 @@ public static class Placement
     {
         Vector3 direction = Vector3.ProjectOnPlane(Random.onUnitSphere, normal);
         return direction.sqrMagnitude < 1e-4f ? RandomOnDisc(normal) : direction.normalized;
-    }
-
-    public static float VesselRadius(Vessel vessel)
-    {
-        float radius = 0;
-
-        if (vessel.loaded)
-        {
-            Vector3 center = vessel.transform.position;
-            foreach (Part part in vessel.parts)
-                radius = Mathf.Max(radius, (part.transform.position - center).magnitude);
-        }
-        else
-        {
-            foreach (ProtoPartSnapshot part in vessel.protoVessel.protoPartSnapshots)
-                radius = Mathf.Max(radius, (float)part.position.magnitude);
-        }
-
-        return radius + 2f;
     }
 
     #endregion

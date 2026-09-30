@@ -139,14 +139,13 @@ public class CraftParser
 
         AddVesselValues(craftNode, vesselNode, template.name, vesselType, highestStage + 1);
 
-        Vector3 craftSize = Vector3.zero;
-        if (craftNode.HasValue("size"))
-            craftSize = KSPUtil.ParseVector3(craftNode.GetValue("size"));
+        template.CalculateBounds();
 
-        template.CalculateBounds(craftSize);
+        if (craftNode.HasValue("size"))
+            ApplyCraftSize(template, KSPUtil.ParseVector3(craftNode.GetValue("size")), root.rotation);
 
         stopwatch.Stop();
-        Logger.Log($"Parsed {template.partCount} parts of {template.DisplayName} in {stopwatch.Elapsed.TotalMilliseconds:N1} ms.");
+        Logger.Log($"Parsed {template.partCount} parts of {template.DisplayName} in {stopwatch.Elapsed.TotalMilliseconds:N1} ms, {template.spaceBounds.size} m across.");
 
         return template;
     }
@@ -404,6 +403,43 @@ public class CraftParser
         craftID = 0;
         int index = nameAndCID.IndexOf('_');
         return index >= 0 && uint.TryParse(nameAndCID.Substring(index + 1), out craftID) && craftID != 0;
+    }
+
+    #endregion
+
+    #region Bounds
+
+    // The part prefabs the bounds are measured from don't have procedural geometry, like fairings
+    // and resizable parts. The editor did, and saved the craft's size along the editor's axes,
+    // without clamps. It has no centre, so keep ours and grow the box to at least that size.
+    private static void ApplyCraftSize(VesselTemplate template, Vector3 craftSize, Quaternion rootInEditor)
+    {
+        if (craftSize == Vector3.zero)
+            return;
+
+        // Our bounds, seen along the editor's axes.
+        Bounds editor = Transform(template.spaceBounds, rootInEditor);
+        Vector3 size = Vector3.Max(editor.size, craftSize);
+        if (size == editor.size)
+            return;
+
+        editor.size = size;
+
+        // Back into the vessel's frame.
+        Bounds grown = Transform(editor, Quaternion.Inverse(rootInEditor));
+        template.spaceBounds = grown;
+        template.landedBounds.Encapsulate(grown);
+    }
+
+    private static Bounds Transform(Bounds bounds, Quaternion rotation)
+    {
+        Vector3 min = bounds.min, max = bounds.max;
+        Bounds result = new Bounds(rotation * bounds.center, Vector3.zero);
+
+        for (int i = 0; i < 8; i++)
+            result.Encapsulate(rotation * new Vector3((i & 1) == 0 ? min.x : max.x, (i & 2) == 0 ? min.y : max.y, (i & 4) == 0 ? min.z : max.z));
+
+        return result;
     }
 
     #endregion

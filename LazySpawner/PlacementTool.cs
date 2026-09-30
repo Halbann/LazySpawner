@@ -163,7 +163,7 @@ public class PlacementTool : MonoBehaviour
                     AddMarkers(landed);
                 else
                 {
-                    PreviewBlocked = !IsClear(template, landed);
+                    PreviewBlocked = Clearance(template, landed, out _) < 0.5f;
                     ShowGhosts(template, landed, ref ghostsUsed, PreviewBlocked ? Ghost.invalidColor : Ghost.validColor);
                 }
                 break;
@@ -286,13 +286,14 @@ public class PlacementTool : MonoBehaviour
         // Steep ground tips things over, and overlapping vessels explode.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
         float slope = Vector3.Angle(hit.normal, up);
-        float distance = (float)(hit.point - active.transform.position).magnitude;
-        bool clear = IsClear(template, placed);
+        float gap = Clearance(template, placed, out Vessel nearest);
+        bool clear = gap >= 0.5f;
 
         placeValid = slope < 30 && clear;
-        placeInfo = $"{Localizer.Format(template.name)} · heading {placeHeading:F0}° · {FormatDistance(distance)} from {active.GetDisplayName()}" +
+        placeInfo = $"{Localizer.Format(template.name)} · heading {placeHeading:F0}°" +
+            (nearest != null && clear ? $" · {FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : "") +
             (slope >= 30 ? $"\n<color=#ff7766>Too steep ({slope:F0}°)</color>" : "") +
-            (!clear ? "\n<color=#ff7766>Too close to another vessel</color>" : "");
+            (!clear ? $"\n<color=#ff7766>Touching {nearest.GetDisplayName()}</color>" : "");
     }
 
     private void PlaceInSpace(VesselTemplate template)
@@ -311,8 +312,6 @@ public class PlacementTool : MonoBehaviour
             return;
 
         Vector3 point = ray.GetPoint(enter);
-        float distance = (point - centre).magnitude;
-        float minimum = Placement.VesselRadius(active) + template.radius;
 
         double UT = Planetarium.GetUniversalTime();
         Orbit orbit = Placement.OrbitFromWorldState(active.mainBody, point, active.obt_velocity, UT);
@@ -320,11 +319,14 @@ public class PlacementTool : MonoBehaviour
         placed = new List<SpawnSituation>();
         int number = IMGUI.count.Valid ? IMGUI.count.value : 1;
         for (int i = 0; i < number; i++)
-            placed.Add(SpawnSituation.Orbiting(i == 0 ? orbit : IMGUI.Cluster(orbit, template, i), IMGUI.randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
+            placed.Add(SpawnSituation.Orbiting(i == 0 ? orbit : IMGUI.Cluster(orbit, template, i, IMGUI.randomRotation), IMGUI.randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
 
-        placeValid = distance >= minimum;
-        placeInfo = $"{Localizer.Format(template.name)} · {FormatDistance(distance)} from {active.GetDisplayName()}" +
-            (!placeValid ? "\n<color=#ff7766>Too close</color>" : "");
+        // Measured between the vessels' boxes, not their centres.
+        float gap = Clearance(template, placed, out Vessel nearest);
+
+        placeValid = gap >= 1f;
+        placeInfo = $"{Localizer.Format(template.name)} · " +
+            (nearest == null ? "" : placeValid ? $"{FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : $"<color=#ff7766>Touching {nearest.GetDisplayName()}</color>");
     }
 
     private void PlaceOnMap(VesselTemplate template)
@@ -469,18 +471,41 @@ public class PlacementTool : MonoBehaviour
         return distance > 0;
     }
 
-    private static bool IsClear(VesselTemplate template, List<SpawnSituation> situations)
+    // The smallest gap between any of the vessels being placed and any loaded vessel, measured between
+    // their boxes. Negative if they overlap.
+    private static float Clearance(VesselTemplate template, List<SpawnSituation> situations, out Vessel nearest)
     {
+        nearest = null;
+        float smallest = float.MaxValue;
+        double UT = Planetarium.GetUniversalTime();
+
         foreach (SpawnSituation situation in situations)
         {
-            Vector3d position = situation.body.GetWorldSurfacePosition(situation.latitude, situation.longitude, situation.body.TerrainAltitude(situation.latitude, situation.longitude, true));
+            VesselBounds.Box box;
+
+            if (situation.landed)
+            {
+                Spawner.LandedPose pose = Spawner.GetLandedPose(template, situation, template.ReferenceRotation);
+                box = new VesselBounds.Box(template.landedBounds, pose.position, pose.rotation);
+            }
+            else
+            {
+                Quaternion rotation = situation.orbitRotation == OrbitRotation.Fixed ? situation.worldRotation : Placement.Prograde(situation.orbit, UT, template.ReferenceRotation);
+                box = new VesselBounds.Box(template.spaceBounds, situation.orbit.getPositionAtUT(UT), rotation);
+            }
 
             foreach (Vessel vessel in FlightGlobals.VesselsLoaded)
-                if ((vessel.transform.position - (Vector3)position).magnitude < Placement.VesselRadius(vessel) + template.radius * 0.8f)
-                    return false;
+            {
+                float gap = box.Gap(VesselBounds.Box.Of(vessel));
+                if (gap < smallest)
+                {
+                    smallest = gap;
+                    nearest = vessel;
+                }
+            }
         }
 
-        return true;
+        return smallest;
     }
 
     private static bool MouseOverUI()

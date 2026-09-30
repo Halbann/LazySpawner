@@ -441,7 +441,7 @@ public static class Spawner
         // when it goes off rails, but it should look right before then too.
         Quaternion upright = Quaternion.Inverse(frame) * pose.rotation;
         float heightAboveBottom = template.HeightAboveBottom(upright);
-        pose.altitude = (pose.splashed ? 0 : pose.terrain) + heightAboveBottom + (pose.splashed ? 0.5 : 1.5);
+        pose.altitude = (pose.splashed ? 0 : pose.terrain) + heightAboveBottom + 0.5;
         pose.position = body.GetWorldSurfacePosition(situation.latitude, situation.longitude, pose.altitude);
 
         return pose;

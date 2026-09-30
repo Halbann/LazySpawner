@@ -24,11 +24,20 @@ public class VesselTemplate
     public Quaternion uprightRotation = Quaternion.identity;
 
     // Part positions relative to the root part, in the vessel's frame.
-    // Used to size the vessel for placement.
     public List<Vector3> partPositions = new List<Vector3>();
 
-    // Rough radius of a sphere around the root part enclosing the vessel.
-    public float radius;
+    // The vessel's size, as boxes in its own frame. Launch clamps only come along on the ground.
+    public Bounds landedBounds;
+    public Bounds spaceBounds;
+
+    public Bounds BoundsFor(bool landed) => landed ? landedBounds : spaceBounds;
+
+    // Radius of a sphere around the root part that encloses the vessel.
+    public float Radius(bool landed)
+    {
+        Bounds bounds = BoundsFor(landed);
+        return bounds.center.magnitude + bounds.extents.magnitude;
+    }
 
     public string DisplayName => KSP.Localization.Localizer.Format(name);
 
@@ -72,25 +81,24 @@ public class VesselTemplate
         return KSPUtil.ParseQuaternion(found.GetValue("rotation"));
     }
 
-    public void CalculateBounds(Vector3 craftSize)
+    public void CalculateBounds()
     {
-        float furthest = 0;
-
-        foreach (Vector3 position in partPositions)
-            furthest = Mathf.Max(furthest, position.magnitude);
-
-        // Part positions are part origins, which undersizes the vessel by roughly a part's size.
-        // The craft's bounding box helps with big parts, when we have it.
-        radius = Mathf.Max(furthest + 2f, craftSize.magnitude * 0.5f);
+        landedBounds = VesselBounds.FromTemplate(this, includeLaunchClamps: true);
+        spaceBounds = VesselBounds.FromTemplate(this, includeLaunchClamps: false);
     }
 
-    // Height of the root part above the vessel's lowest part, when upright.
+    // Height of the root part above the vessel's lowest point, when turned this way.
     public float HeightAboveBottom(Quaternion rotation)
     {
+        Bounds bounds = landedBounds;
+        Vector3 min = bounds.min, max = bounds.max;
         float lowest = 0;
 
-        foreach (Vector3 position in partPositions)
-            lowest = Mathf.Min(lowest, (rotation * position).y);
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = new Vector3((i & 1) == 0 ? min.x : max.x, (i & 2) == 0 ? min.y : max.y, (i & 4) == 0 ? min.z : max.z);
+            lowest = Mathf.Min(lowest, (rotation * corner).y);
+        }
 
         return -lowest;
     }
@@ -121,7 +129,9 @@ public class VesselTemplate
         foreach (ProtoPartSnapshot snapshot in proto.protoPartSnapshots)
             template.partPositions.Add(snapshot.position);
 
-        template.CalculateBounds(Vector3.zero);
+        // A loaded vessel can be measured as it is, procedural fairings and all.
+        template.landedBounds = VesselBounds.FromVessel(vessel, includeLaunchClamps: true);
+        template.spaceBounds = VesselBounds.FromVessel(vessel, includeLaunchClamps: false);
 
         // Keep the vessel's attitude relative to the ground beneath it.
         CelestialBody body = vessel.mainBody;

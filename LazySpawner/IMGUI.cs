@@ -783,7 +783,7 @@ public class IMGUI : MonoBehaviour
                     else if (spreadAlongOrbit && reference.eccentricity < 1)
                         orbit = CreateOrbit(360.0 * i / number);
                     else
-                        orbit = Cluster(reference, template, i);
+                        orbit = Cluster(reference, template, i, randomRotation);
 
                     situations.Add(SpawnSituation.Orbiting(orbit, rotation));
                 }
@@ -804,7 +804,18 @@ public class IMGUI : MonoBehaviour
         Quaternion frame = Placement.SurfaceFrame(body, latitude, longitude, heading);
         Vector3d centre = body.GetWorldSurfacePosition(latitude, longitude, 0);
         Vector3 side = frame * Vector3.right;
-        float spacing = template.radius * 2f + 4f;
+
+        // Side by side with a few metres between them, however wide the vessel is across the row.
+        float width;
+        if (randomHeading)
+            width = new Vector2(template.landedBounds.extents.x, template.landedBounds.extents.z).magnitude * 2 + template.landedBounds.center.magnitude;
+        else
+        {
+            Spawner.LandedPose pose = Spawner.GetLandedPose(template, SpawnSituation.Landed(body, latitude, longitude, heading), template.ReferenceRotation);
+            width = new VesselBounds.Box(template.landedBounds, Vector3.zero, pose.rotation).Extent(side) * 2;
+        }
+
+        float spacing = width + 4f;
 
         for (int i = 0; i < number; i++)
         {
@@ -822,7 +833,7 @@ public class IMGUI : MonoBehaviour
 
     // A tidy formation around the reference orbit's current position, all with the same velocity.
     // Grid points nearest the middle first, lined up with the direction of travel.
-    internal static Orbit Cluster(Orbit reference, VesselTemplate template, int index)
+    internal static Orbit Cluster(Orbit reference, VesselTemplate template, int index, bool randomRotation)
     {
         if (index == 0)
             return reference;
@@ -836,9 +847,20 @@ public class IMGUI : MonoBehaviour
         Vector3d radial = Vector3d.Exclude(prograde, position - b.position).normalized;
         Vector3d normal = Vector3d.Cross(prograde, radial);
 
+        // Spacing along each axis of the formation, from the vessel's size in that direction.
+        // Vessels facing any which way need room to face any which way.
+        const float gap = 5;
+        Vector3d spacing;
+        if (randomRotation)
+            spacing = Vector3d.one * (template.Radius(false) * 2 + gap);
+        else
+        {
+            VesselBounds.Box box = new VesselBounds.Box(template.spaceBounds, Vector3.zero, Placement.Prograde(reference, UT, template.ReferenceRotation));
+            spacing = new Vector3d(box.Extent(prograde) * 2 + gap, box.Extent(radial) * 2 + gap, box.Extent(normal) * 2 + gap);
+        }
+
         Vector3 cell = GridCell(index);
-        double spacing = template.radius * 2 + 5;
-        Vector3d offset = (prograde * cell.x + radial * cell.y + normal * cell.z) * spacing;
+        Vector3d offset = prograde * (cell.x * spacing.x) + radial * (cell.y * spacing.y) + normal * (cell.z * spacing.z);
 
         return Placement.OrbitFromWorldState(b, position + offset, velocity, UT);
     }
