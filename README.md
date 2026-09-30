@@ -30,7 +30,7 @@ In **Place** mode, **Place…** gets the console out of the way and a ghost foll
 
 The editor's rotation keys turn it the same way they turn parts: 90° a press, or 5° with **Shift**. On the ground **Q/E** turn it. In space it starts nose prograde and roof up on screen, **WASDQE** rotate it, and **Space** resets it.
 
-Click to spawn. **Ctrl-click** keeps placing, **right-click** or **Escape** stops. The console comes back when you're done.
+**Left-click** to spawn. **Ctrl-click** keeps placing, **right-click** or **Escape** stops. The console comes back when you're done.
 
 ### Crew
 

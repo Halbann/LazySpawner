@@ -643,11 +643,11 @@ public class PlacementTool : MonoBehaviour
         string roll = GameSettings.Editor_rollLeft.name + "/" + GameSettings.Editor_rollRight.name;
         string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(k => k.name));
         string fine = $"{GameSettings.Editor_fineTweak.name} for 5°";
-        string controls = "Click to spawn · " + (kind == Kind.MapOrbit ? $"Turn the camera to tilt the orbit · {roll} to reverse · "
+        string controls = "Left-click to spawn · " + (kind == Kind.MapOrbit ? $"Turn the camera to tilt the orbit · {roll} to reverse · "
             : Controller.randomRotation ? ""
             : kind == Kind.Space ? $"{all} to rotate, {fine}, {GameSettings.Editor_resetRotation.name} to reset · "
             : $"{roll} to turn, {fine} · ")
-            + "Ctrl-click to keep going · Right-click to stop";
+            + "Ctrl-click to keep placing · Right-click to stop";
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);
