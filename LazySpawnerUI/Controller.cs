@@ -99,7 +99,7 @@ public class Controller : MonoBehaviour
         body.Refresh();
 
         if (!File.Exists(craftPath.Value))
-            craftPath.Value = CraftList.All.FirstOrDefault(c => c.missingParts.Count == 0)?.path ?? "";
+            craftPath.Value = CraftList.All.FirstOrDefault(c => c.MissingParts.Count == 0)?.path ?? "";
 
         AddToolbarButton();
         GameEvents.onGUIApplicationLauncherReady.Add(AddToolbarButton);

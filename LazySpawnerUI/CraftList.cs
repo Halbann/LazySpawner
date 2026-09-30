@@ -11,40 +11,80 @@ namespace LazySpawner;
 internal class Craft
 {
     public string path;
-    public string name;
+    public string name; // The file's name, as the stock craft browser shows it.
     public string facility; // VAB or SPH
-    public int partCount;
-    public List<string> missingParts = new List<string>();
     public DateTime modified;
     public string thumbnailPath;
     public bool elsewhere; // Not in the save or the game's own Ships folder.
 
+    private string displayName;
+    public string DisplayName => displayName ??= KSP.Localization.Localizer.Format(name);
+
+    // What's in the craft is only read when it's first needed: in a list, when its row comes into view.
+    private bool detailed;
+    private int partCount;
+    private List<string> missingParts;
+
+    public int PartCount { get { Detail(); return partCount; } }
+    public List<string> MissingParts { get { Detail(); return missingParts; } }
+
+    private void Detail()
+    {
+        if (detailed)
+            return;
+
+        detailed = true;
+        missingParts = new List<string>();
+
+        try
+        {
+            // Stock keeps what's in a craft in a .loadmeta beside it, and rebuilds it if the craft is newer.
+            // Craft from elsewhere are read directly, without leaving one behind.
+            CraftProfileInfo info = elsewhere
+                ? new CraftProfileInfo().LoadDetailsFromCraftFile(ConfigNode.Load(path), path)
+                : CraftProfileInfo.GetSaveData(path, Path.ChangeExtension(path, ".loadmeta"));
+
+            partCount = info.partCount;
+            missingParts = (info.partNames ?? new List<string>()).Distinct().Where(p => PartLoader.getPartInfoByName(p) == null).ToList();
+            facility ??= info.shipFacility == EditorFacility.SPH ? "SPH" : "VAB";
+        }
+        catch (Exception e)
+        {
+            Logger.LogWarning($"Couldn't read {path}: {e.Message}");
+        }
+    }
+
     private Texture2D thumbnail;
     private bool thumbnailLoaded;
-
-    public string DisplayName => KSP.Localization.Localizer.Format(name);
 
     public Texture2D Thumbnail
     {
         get
         {
-            if (!thumbnailLoaded)
+            if (!thumbnailLoaded && thumbnailPath != null)
             {
                 thumbnailLoaded = true;
-                if (thumbnailPath != null && File.Exists(thumbnailPath))
+                if (File.Exists(thumbnailPath))
                 {
                     thumbnail = new Texture2D(2, 2);
-                    thumbnail.LoadImage(File.ReadAllBytes(thumbnailPath));
+                    thumbnail.LoadImage(File.ReadAllBytes(thumbnailPath), markNonReadable: true);
                 }
             }
 
             return thumbnail;
         }
     }
+
+    // The file changed, so this is out of date.
+    public void Forget()
+    {
+        if (thumbnail != null)
+            UnityEngine.Object.Destroy(thumbnail);
+    }
 }
 
 // Every craft in the save and the game's Ships folder, plus craft from elsewhere that were spawned recently.
-// Stock caches what it knows about each craft in a .loadmeta file beside it, so listing them is cheap.
+// Listing them only looks at the files' names and dates, however many there are.
 [Settings(category = "Craft")]
 internal static class CraftList
 {
@@ -53,7 +93,9 @@ internal static class CraftList
     private const int maxRecent = 20;
 
     private static List<Craft> all;
-    private static readonly Dictionary<string, Craft> elsewhere = new Dictionary<string, Craft>();
+
+    // Every craft seen so far, kept until its file changes.
+    private static readonly Dictionary<string, Craft> known = new Dictionary<string, Craft>(StringComparer.OrdinalIgnoreCase);
 
     public static List<Craft> All => all ??= Find();
 
@@ -67,9 +109,9 @@ internal static class CraftList
         foreach (string facility in new[] { "VAB", "SPH" })
         {
             if (HighLogic.SaveFolder != null)
-                AddFolder(craft, Path.Combine(root, "saves", HighLogic.SaveFolder, "Ships", facility), facility, stock: false);
+                AddFolder(craft, Path.Combine(root, "saves", HighLogic.SaveFolder, "Ships"), facility, stock: false);
 
-            AddFolder(craft, Path.Combine(root, "Ships", facility), facility, stock: true);
+            AddFolder(craft, Path.Combine(root, "Ships"), facility, stock: true);
         }
 
         foreach (string path in Recent())
@@ -79,79 +121,55 @@ internal static class CraftList
         return craft.OrderByDescending(c => c.modified).ToList();
     }
 
-    private static void AddFolder(List<Craft> craft, string folder, string facility, bool stock)
+    private static void AddFolder(List<Craft> craft, string ships, string facility, bool stock)
     {
+        ships = Path.GetFullPath(ships);
+        string folder = Path.Combine(ships, facility);
         if (!Directory.Exists(folder))
             return;
 
         foreach (string path in Directory.GetFiles(folder, "*.craft", SearchOption.AllDirectories))
         {
-            try
+            DateTime modified = File.GetLastWriteTime(path);
+            if (!known.TryGetValue(path, out Craft entry) || entry.modified != modified)
             {
-                CraftProfileInfo info = CraftProfileInfo.GetSaveData(path, Path.ChangeExtension(path, ".loadmeta"));
-                string name = Path.GetFileNameWithoutExtension(path);
+                entry?.Forget();
+                entry = known[path] = new Craft { path = path, name = Path.GetFileNameWithoutExtension(path), facility = facility, modified = modified };
+            }
 
-                craft.Add(new Craft
-                {
-                    path = Path.GetFullPath(path),
-                    name = string.IsNullOrEmpty(info.shipName) ? name : info.shipName,
-                    facility = facility,
-                    partCount = info.partCount,
-                    missingParts = Missing(info.partNames),
-                    modified = File.GetLastWriteTime(path),
-                    thumbnailPath = stock
-                        ? Path.Combine(KSPUtil.ApplicationRootPath, $"Ships/@thumbs/{facility}/{KSPUtil.SanitizeFilename(name)}.png")
-                        : Path.Combine(KSPUtil.ApplicationRootPath, "thumbs", ShipConstruction.GetPlayerCraftThumbnailName(Path.GetDirectoryName(path), name) + ".png"),
-                });
-            }
-            catch (Exception e)
-            {
-                Logger.LogWarning($"Couldn't read {path}: {e.Message}");
-            }
+            // Worked out here rather than by ShipConstruction.GetPlayerCraftThumbnailName, which loads
+            // the whole craft file to find out which editor it's from.
+            entry.thumbnailPath ??= Path.Combine(KSPUtil.ApplicationRootPath, stock
+                ? $"Ships/@thumbs/{facility}/{KSPUtil.SanitizeFilename(entry.name)}.png"
+                : "thumbs/" + ShipConstruction.GetPlayerCraftThumbnailName(HighLogic.SaveFolder, Path.GetDirectoryName(path).Substring(ships.Length), entry.name) + ".png");
+
+            craft.Add(entry);
         }
     }
 
-    private static List<string> Missing(IEnumerable<string> partNames) =>
-        (partNames ?? Enumerable.Empty<string>()).Distinct().Where(p => PartLoader.getPartInfoByName(p) == null).ToList();
-
-    // A craft file from anywhere. Ones outside the game are read directly, without leaving a .loadmeta beside them.
+    // A craft file from anywhere. Asked for every frame, so it doesn't look at the file again once it's
+    // known. Refreshing the list does.
     public static Craft Get(string path)
     {
-        path = Path.GetFullPath(path);
-        Craft known = all?.Find(c => string.Equals(c.path, path, StringComparison.OrdinalIgnoreCase));
-        if (known != null)
-            return known;
+        if (string.IsNullOrEmpty(path))
+            return null;
 
-        if (elsewhere.TryGetValue(path, out Craft craft))
+        path = Path.GetFullPath(path);
+        if (known.TryGetValue(path, out Craft craft))
             return craft;
 
         if (!File.Exists(path))
             return null;
 
-        try
+        string[] folders = path.Split(Path.DirectorySeparatorChar);
+        return known[path] = new Craft
         {
-            ConfigNode node = ConfigNode.Load(path);
-            CraftProfileInfo info = new CraftProfileInfo().LoadDetailsFromCraftFile(node, path);
-
-            craft = new Craft
-            {
-                path = path,
-                name = string.IsNullOrEmpty(info.shipName) ? Path.GetFileNameWithoutExtension(path) : info.shipName,
-                facility = node.GetValue("type") ?? "VAB",
-                partCount = info.partCount,
-                missingParts = Missing(info.partNames),
-                modified = File.GetLastWriteTime(path),
-                elsewhere = !path.StartsWith(Path.GetFullPath(KSPUtil.ApplicationRootPath), StringComparison.OrdinalIgnoreCase),
-            };
-
-            elsewhere[path] = craft;
-            return craft;
-        }
-        catch (Exception e)
-        {
-            Logger.LogWarning($"Couldn't read {path}: {e.Message}");
-            return null;
-        }
+            path = path,
+            name = Path.GetFileNameWithoutExtension(path),
+            facility = folders.Contains("SPH") ? "SPH" : folders.Contains("VAB") ? "VAB" : null,
+            modified = File.GetLastWriteTime(path),
+            elsewhere = !path.StartsWith(Path.GetFullPath(KSPUtil.ApplicationRootPath), StringComparison.OrdinalIgnoreCase),
+        };
     }
 
     // The craft file some text is a path to, if it is. Paths copied from Explorer or Everything often come quoted.

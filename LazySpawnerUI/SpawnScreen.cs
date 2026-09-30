@@ -22,7 +22,7 @@ public class SpawnScreen : MonoBehaviour
     public static bool Visible => instance != null && instance.isActiveAndEnabled && DebugUI.Shown;
 
     private readonly List<Action> refresh = new List<Action>();
-    private RectTransform main, picker, list;
+    private RectTransform main, picker;
     private TMP_InputField search;
     private string listed;
     private float nextClipboardCheck;
@@ -42,9 +42,12 @@ public class SpawnScreen : MonoBehaviour
     protected void Start()
     {
         instance = this;
+        // A hot reload copies these across, full of the old screen's widgets.
         foreach (Transform child in transform)
             Destroy(child.gameObject);
         refresh.Clear();
+        rows.Clear();
+        shownFrom = -1;
 
         Stretch((RectTransform)transform);
         main = Page();
@@ -330,9 +333,9 @@ public class SpawnScreen : MonoBehaviour
     }
 
     private static string Describe(Craft craft) =>
-        $"<b>{craft.DisplayName}</b>\n" + (craft.missingParts.Count > 0
-            ? $"{orange}{craft.missingParts.Count} missing part{(craft.missingParts.Count == 1 ? "" : "s")}: {string.Join(", ", craft.missingParts.Take(3))}{(craft.missingParts.Count > 3 ? "…" : "")}"
-            : $"{grey}{(craft.elsewhere ? "From elsewhere" : craft.facility)} · {craft.partCount} parts · {Ago(craft.modified)}");
+        $"<b>{craft.DisplayName}</b>\n" + (craft.MissingParts.Count > 0
+            ? $"{orange}{craft.MissingParts.Count} missing part{(craft.MissingParts.Count == 1 ? "" : "s")}: {string.Join(", ", craft.MissingParts.Take(3))}{(craft.MissingParts.Count > 3 ? "…" : "")}"
+            : $"{grey}{(craft.elsewhere ? "From elsewhere" : craft.facility)} · {craft.PartCount} parts · {Ago(craft.modified)}");
 
     private static string Ago(DateTime time)
     {
@@ -468,6 +471,20 @@ public class SpawnScreen : MonoBehaviour
 
     #region Craft Picker
 
+    // A line in the list: a craft, or the vessel to clone.
+    private class Entry
+    {
+        public Craft craft;
+        public string text;
+        public Action pick;
+    }
+
+    private const float rowHeight = 42;
+    private ScrollRect scroll;
+    private readonly List<Entry> entries = new List<Entry>();
+    private readonly List<Button> rows = new List<Button>();
+    private int shownFrom = -1;
+
     private void ShowPicker(bool show)
     {
         main.gameObject.SetActive(!show);
@@ -479,6 +496,7 @@ public class SpawnScreen : MonoBehaviour
             listed = null;
             search.text = "";
             search.ActivateInputField();
+            scroll.verticalNormalizedPosition = 1;
         }
     }
 
@@ -491,56 +509,84 @@ public class SpawnScreen : MonoBehaviour
         DebugUI.Button(top, "Back", () => ShowPicker(false), 50);
 
         Choice(page, "Show", filter, "All", "VAB", "SPH");
-        list = DebugUI.ScrollList(page, 100);
+
+        // Only the rows in view exist. They move and change as the list scrolls, so however many craft
+        // there are, the list opens and filters without making hundreds of UI objects.
+        scroll = DebugUI.ScrollView(page, 100);
 
         refresh.Add(() =>
         {
+            if (!picker.gameObject.activeSelf)
+                return;
+
             string key = $"{search.text}|{filter.Value}|{Controller.CloneSource()?.id}|{CraftList.All.Count}";
-            if (picker.gameObject.activeSelf && key != listed)
+            if (key != listed)
             {
                 listed = key;
-                FillList();
+                Refilter();
             }
+
+            ShowRows();
         });
     }
 
-    private void FillList()
+    private void Refilter()
     {
-        foreach (Transform child in list)
-            Destroy(child.gameObject);
+        entries.Clear();
+        shownFrom = -1;
 
         // A path, pasted or typed.
         Craft pasted = CraftList.FromText(search.text);
         if (pasted != null)
+            entries.Add(new Entry { craft = pasted, text = Describe(pasted) + $"\n{grey}{pasted.path}", pick = () => Controller.Select(pasted) });
+        else
         {
-            CraftRow(pasted.Thumbnail, Describe(pasted) + $"\n{grey}{pasted.path}", pasted, () => Controller.Select(pasted));
-            return;
+            Vessel original = Controller.CloneSource();
+            if (original != null && !original.isEVA && search.text == "")
+                entries.Add(new Entry { text = $"<b>{original.GetDisplayName()}</b>\n{grey}Copy the {(HighLogic.LoadedSceneIsFlight ? "active" : "selected")} vessel", pick = () => Controller.source.Value = Controller.Source.Clone });
+
+            string[] words = search.text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (Craft craft in CraftList.All)
+                if ((filter == Filter.All || craft.facility == filter.Value.ToString()) && words.All(w => craft.DisplayName.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
+                    entries.Add(new Entry { craft = craft, pick = () => Controller.Select(craft) });
         }
 
-        Vessel original = Controller.CloneSource();
-        if (original != null && !original.isEVA && search.text == "")
-            CraftRow(null, $"<b>{original.GetDisplayName()}</b>\n{grey}Copy the {(HighLogic.LoadedSceneIsFlight ? "active" : "selected")} vessel", null, () => Controller.source.Value = Controller.Source.Clone);
+        scroll.content.sizeDelta = new Vector2(0, entries.Count * rowHeight);
+    }
 
-        string[] words = search.text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (Craft craft in CraftList.All)
+    private void ShowRows()
+    {
+        int visible = Mathf.CeilToInt(scroll.viewport.rect.height / rowHeight) + 1;
+        while (rows.Count < visible)
         {
-            if (filter != Filter.All && craft.facility != filter.Value.ToString())
-                continue;
-            if (!words.All(w => craft.DisplayName.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
-                continue;
+            rows.Add(NewRow(rows.Count));
+            shownFrom = -1;
+        }
 
-            CraftRow(craft.Thumbnail, Describe(craft), craft, () => Controller.Select(craft));
+        int first = Mathf.Max(0, (int)(scroll.content.anchoredPosition.y / rowHeight));
+        if (first == shownFrom)
+            return;
+
+        shownFrom = first;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            int index = first + i;
+            rows[i].gameObject.SetActive(index < entries.Count);
+            if (index < entries.Count)
+                Fill(rows[i], entries[index], index);
         }
     }
 
-    private void CraftRow(Texture thumbnail, string text, Craft craft, Action pick)
+    private Button NewRow(int slot)
     {
-        Button row = DebugUI.Button(list, "", () => { pick(); ShowPicker(false); });
-        LayoutElement layout = row.GetComponent<LayoutElement>();
-        layout.minHeight = layout.preferredHeight = 40;
+        Button row = DebugUI.Button(scroll.content, "", () => { entries[shownFrom + slot].pick(); ShowPicker(false); });
+        RectTransform rect = (RectTransform)row.transform;
+        rect.anchorMin = new Vector2(0, 1);
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 1);
+        rect.sizeDelta = new Vector2(0, rowHeight - 2);
 
         TextMeshProUGUI label = row.GetComponentInChildren<TextMeshProUGUI>();
-        label.text = text;
         label.richText = true;
         label.alignment = TextAlignmentOptions.MidlineLeft;
         label.margin = new Vector4(44, 0, 4, 0);
@@ -548,17 +594,29 @@ public class SpawnScreen : MonoBehaviour
         label.overflowMode = TextOverflowModes.Ellipsis;
 
         RectTransform image = Thumbnail(row.transform, 36).rectTransform;
-        image.GetComponent<RawImage>().texture = thumbnail;
-        image.GetComponent<RawImage>().enabled = thumbnail != null;
         image.anchorMin = image.anchorMax = image.pivot = new Vector2(0, 0.5f);
         image.anchoredPosition = new Vector2(2, 0);
         image.sizeDelta = new Vector2(36, 36);
 
-        if (craft != null && craft.missingParts.Count > 0)
-        {
-            row.interactable = false;
-            DebugUI.Tooltip(row, "Missing parts:\n" + string.Join("\n", craft.missingParts));
-        }
+        DebugUI.Tooltip(row, "");
+        return row;
+    }
+
+    private void Fill(Button row, Entry entry, int index)
+    {
+        ((RectTransform)row.transform).anchoredPosition = new Vector2(0, -index * rowHeight);
+        row.GetComponentInChildren<TextMeshProUGUI>().text = entry.text ?? Describe(entry.craft);
+
+        // Thumbnails load as their rows come into view.
+        RawImage image = row.GetComponentInChildren<RawImage>();
+        image.texture = entry.craft?.Thumbnail;
+        image.enabled = image.texture != null;
+
+        bool missing = entry.craft != null && entry.craft.MissingParts.Count > 0;
+        row.interactable = !missing;
+        KSP.UI.TooltipTypes.TooltipController_Text tooltip = row.GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
+        tooltip.enabled = missing;
+        tooltip.textString = missing ? "Missing parts:\n" + string.Join("\n", entry.craft.MissingParts) : "";
     }
 
     #endregion

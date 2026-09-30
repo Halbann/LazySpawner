@@ -179,26 +179,42 @@ internal static class DebugUI
         }, group)).ToArray();
     }
 
-    // A scrolling list, with the stock scrollbar. Returns the list's contents.
-    public static RectTransform ScrollList(Transform parent, float height)
+    // An empty scroll view, with the stock scrollbar, that takes up whatever height is left.
+    public static ScrollRect ScrollView(Transform parent, float minHeight)
     {
         GameObject clone = Clone(P.scrollView, parent);
+        clone.name = "ScrollView";
         LayoutElement layout = clone.GetComponent<LayoutElement>();
-        layout.minHeight = layout.preferredHeight = height;
+        layout.minHeight = layout.preferredHeight = minHeight;
         layout.flexibleHeight = 1;
 
+        // Fresh contents, without the stock tree view and its layout.
         ScrollRect scroll = clone.GetComponent<ScrollRect>();
-        foreach (Transform child in scroll.content)
-            Object.Destroy(child.gameObject);
+        if (scroll.viewport == null)
+            scroll.viewport = (RectTransform)scroll.content.parent;
 
-        RectTransform content = scroll.content;
-        VerticalLayoutGroup list = content.GetComponent<VerticalLayoutGroup>() ?? content.gameObject.AddComponent<VerticalLayoutGroup>();
+        RectTransform content = new GameObject("Content", typeof(RectTransform)).GetComponent<RectTransform>();
+        content.SetParent(scroll.viewport, false);
+        content.anchorMin = new Vector2(0, 1);
+        content.anchorMax = Vector2.one;
+        content.pivot = new Vector2(0.5f, 1);
+        content.sizeDelta = Vector2.zero;
+        Object.DestroyImmediate(scroll.content.gameObject);
+        scroll.content = content;
+
+        return scroll;
+    }
+
+    // A scrolling list. Returns the list's contents.
+    public static RectTransform ScrollList(Transform parent, float minHeight)
+    {
+        RectTransform content = ScrollView(parent, minHeight).content;
+        VerticalLayoutGroup list = content.gameObject.AddComponent<VerticalLayoutGroup>();
         list.spacing = 2;
         list.childControlWidth = list.childControlHeight = list.childForceExpandWidth = true;
         list.childForceExpandHeight = false;
 
-        ContentSizeFitter fitter = content.GetComponent<ContentSizeFitter>() ?? content.gameObject.AddComponent<ContentSizeFitter>();
-        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         return content;
     }
 
