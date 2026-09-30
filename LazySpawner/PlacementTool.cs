@@ -350,7 +350,7 @@ public class PlacementTool : MonoBehaviour
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
         double terrain = hitBody.TerrainAltitude(latitude, longitude, true);
-        string water = hitBody.ocean && terrain < 0 ? " (water)" : "";
+        string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · on the water" : "";
         placeInfo = $"{Localizer.Format(template.name)} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
             $"{latitude:F3}°, {longitude:F3}° · heading {placeHeading:F0}°";
     }

@@ -30,6 +30,9 @@ public struct CrewSettings
 // The vessels load normally when they come into range of the active vessel.
 public static class Spawner
 {
+    // Kerbals hired to crew spawned vessels this session, so that removing the vessels can fire them again.
+    private static readonly HashSet<string> hiredKerbals = new HashSet<string>();
+
     public static Vessel Spawn(VesselTemplate template, SpawnSituation situation, CrewSettings crew)
     {
         if (template == null)
@@ -37,6 +40,8 @@ public static class Spawner
 
         if (HighLogic.CurrentGame?.flightState == null || FlightGlobals.fetch == null)
             throw new SpawnException("Vessels can only be spawned in flight or the tracking station.");
+
+        System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
 
         // Work on a copy so that the template can be used again.
         ConfigNode node = template.node.CreateCopy();
@@ -54,6 +59,7 @@ public static class Spawner
 
         // The stock constructor registers the vessel's and parts' persistent IDs.
         ProtoVessel protoVessel = new ProtoVessel(node, HighLogic.CurrentGame);
+        double prepared = timer.Elapsed.TotalMilliseconds;
 
         Populate(protoVessel, crew, situation);
 
@@ -63,10 +69,52 @@ public static class Spawner
 
         Place(protoVessel, template, situation);
 
-        Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")}.");
+        Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")} in {timer.Elapsed.TotalMilliseconds:F1} ms ({prepared:F1} ms to prepare).");
 
         return protoVessel.vesselRef;
     }
+
+    #region Removal
+
+    // Undo a spawn: crew who were already on the roster go back to the astronaut complex,
+    // kerbals hired for the vessel are let go, and the vessel disappears without a trace.
+    public static bool Remove(Vessel vessel)
+    {
+        if (vessel == null || vessel.state == Vessel.State.DEAD || vessel == FlightGlobals.ActiveVessel)
+            return false;
+
+        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+
+        foreach (ProtoCrewMember crew in vessel.GetVesselCrew().ToList())
+        {
+            if (vessel.loaded)
+                foreach (Part part in vessel.parts)
+                    if (part.protoModuleCrew.Contains(crew))
+                        part.RemoveCrewmember(crew);
+
+            if (vessel.protoVessel != null)
+            {
+                foreach (ProtoPartSnapshot snapshot in vessel.protoVessel.protoPartSnapshots)
+                    snapshot.RemoveCrew(crew);
+
+                vessel.protoVessel.RemoveCrew(crew);
+            }
+
+            crew.seatIdx = -1;
+
+            if (hiredKerbals.Remove(crew.name))
+                roster.Remove(crew);
+            else
+                crew.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+        }
+
+        HighLogic.CurrentGame.flightState?.protoVessels.Remove(vessel.protoVessel);
+        vessel.Die();
+
+        return true;
+    }
+
+    #endregion
 
     #region Identity
 
@@ -491,7 +539,10 @@ public static class Spawner
 
                 // Set any newly hired kerbals to max level, but don't mess with already existing kerbals.
                 if (!originalRoster.Contains(crewMember.name))
+                {
                     KerbalRoster.SetExperienceLevel(crewMember, KerbalRoster.GetExperienceMaxLevel());
+                    hiredKerbals.Add(crewMember.name);
+                }
 
                 crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
                 crewMember.seatIdx = seat;

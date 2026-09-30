@@ -28,6 +28,7 @@ public class IMGUI : MonoBehaviour
     private int windowID;
     private Rect windowRect = new Rect(0, 0, windowWidth, 0);
     private static readonly Dictionary<GameScenes, Rect> windowRects = new Dictionary<GameScenes, Rect>();
+    private GameScenes scene; // By OnDestroy, LoadedScene is already the next scene.
     private bool drawGUI = false;
     private bool showSettings = false;
     private bool showHelp = false;
@@ -119,7 +120,8 @@ public class IMGUI : MonoBehaviour
         windowID = GUIUtility.GetControlID(FocusType.Passive);
 
         // Remember where the window was in each scene. The tracking station's vessel list is on the left.
-        if (!windowRects.TryGetValue(HighLogic.LoadedScene, out windowRect))
+        scene = HighLogic.LoadedScene;
+        if (!windowRects.TryGetValue(scene, out windowRect))
         {
             float x = HighLogic.LoadedScene == GameScenes.TRACKSTATION ? 0.25f : 0.04f;
             windowRect = new Rect(Screen.width * x, Screen.height * 0.1f, windowWidth, 0);
@@ -161,7 +163,7 @@ public class IMGUI : MonoBehaviour
         if (Instance == this)
             Instance = null;
 
-        windowRects[HighLogic.LoadedScene] = windowRect;
+        windowRects[scene] = windowRect;
 
         GameEvents.onGUIApplicationLauncherReady.Remove(AddToolbarButton);
         InputLockManager.RemoveControlLock(scrollLockID);
@@ -546,11 +548,24 @@ public class IMGUI : MonoBehaviour
 
         lastSpawned.RemoveAll(v => v == null || v.state == Vessel.State.DEAD);
 
-        if (HighLogic.LoadedSceneIsFlight && lastSpawned.Count > 0)
+        if (lastSpawned.Count > 0)
         {
+            GUILayout.BeginHorizontal();
+
             Vessel target = lastSpawned[0];
-            if (target != FlightGlobals.ActiveVessel && GUILayout.Button($"Switch To {target.GetDisplayName()}"))
+            if (HighLogic.LoadedSceneIsFlight && target != FlightGlobals.ActiveVessel && GUILayout.Button($"Switch To {target.GetDisplayName()}"))
                 FlightGlobals.SetActiveVessel(target);
+
+            int removable = lastSpawned.Count(v => v != FlightGlobals.ActiveVessel);
+            if (removable > 0 && GUILayout.Button(new GUIContent(removable == 1 ? "Undo" : $"Undo ({removable})", "Remove the vessels you just spawned. Their crew go home.")))
+            {
+                int removed = lastSpawned.Count(Spawner.Remove);
+                lastSpawned.RemoveAll(v => v == null || v.state == Vessel.State.DEAD);
+                status = removed == 1 ? "Removed 1 vessel." : $"Removed {removed} vessels.";
+                statusIsError = false;
+            }
+
+            GUILayout.EndHorizontal();
         }
     }
 
