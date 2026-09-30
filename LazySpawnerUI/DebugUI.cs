@@ -17,8 +17,9 @@ internal static class DebugUI
 {
     private static DebugScreenSpawner Spawner => DebugScreenSpawner.Instance;
 
-    // Labels in front of fields and choices, so they all line up.
+    // Labels in front of fields and choices, so they all line up, and the width of most controls, as in stock.
     public const float LabelWidth = 140;
+    public const float ControlWidth = 160;
 
     // The stock widgets everything is cloned from, found the first time they're needed.
     private class Prefabs
@@ -77,8 +78,9 @@ internal static class DebugUI
         clone.SetActive(true);
 
         LayoutElement layout = clone.GetComponent<LayoutElement>() ?? clone.AddComponent<LayoutElement>();
+        // A fixed width is a minimum too, so a narrow window cuts widgets off, as stock does, instead of squashing them.
         layout.minHeight = layout.preferredHeight = 20;
-        layout.preferredWidth = width;
+        layout.minWidth = layout.preferredWidth = width;
         layout.flexibleWidth = width < 0 ? 1 : 0;
         return clone;
     }
@@ -119,6 +121,28 @@ internal static class DebugUI
         return tmp;
     }
 
+    // A section's heading, underlined, as in Rescored.
+    public static void Heading(Transform parent, string text)
+    {
+        TextMeshProUGUI heading = Label(parent, text, bold: true);
+        heading.fontSize *= 1.2f;
+        heading.GetComponent<LayoutElement>().preferredHeight = 24;
+
+        GameObject line = new GameObject("Line", typeof(RectTransform));
+        line.transform.SetParent(parent, false);
+        line.AddComponent<Image>().color = new Color(0.4f, 0.4f, 0.4f);
+        line.AddComponent<LayoutElement>().minHeight = 1;
+        Spacer(parent, 2);
+    }
+
+    // A shaded panel, to set something apart.
+    public static RectTransform Box(Transform parent)
+    {
+        RectTransform box = Column(parent, 3, new RectOffset(6, 6, 5, 5));
+        box.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, 0.25f);
+        return box;
+    }
+
     // Text that grows to fit.
     public static TextMeshProUGUI Paragraph(Transform parent, string text = "")
     {
@@ -153,7 +177,7 @@ internal static class DebugUI
 
         LayoutElement layout = clone.GetComponent<LayoutElement>();
         layout.flexibleWidth = 0;
-        layout.preferredWidth = tmp.GetPreferredValues(text).x + 28;
+        layout.minWidth = layout.preferredWidth = tmp.GetPreferredValues(text).x + 36;
 
         Toggle t = clone.GetComponent<Toggle>();
         t.group = group;
@@ -165,7 +189,7 @@ internal static class DebugUI
     // Radio buttons in a row, one per name, for choosing an enum value.
     public static Toggle[] Choice<T>(Transform parent, string title, Setting<T> setting, string[] names, Action changed = null) where T : Enum
     {
-        Transform row = Row(parent, 10);
+        Transform row = Row(parent);
         Label(row, title, LabelWidth);
         ToggleGroup group = row.gameObject.AddComponent<ToggleGroup>();
 
@@ -211,6 +235,7 @@ internal static class DebugUI
         RectTransform content = ScrollView(parent, minHeight).content;
         VerticalLayoutGroup list = content.gameObject.AddComponent<VerticalLayoutGroup>();
         list.spacing = 2;
+        list.padding = new RectOffset(6, 6, 4, 4);
         list.childControlWidth = list.childControlHeight = list.childForceExpandWidth = true;
         list.childForceExpandHeight = false;
 

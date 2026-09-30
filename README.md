@@ -1,6 +1,6 @@
 A KSP mod for spawning vessels, lots of them if you like, from Flight or the Tracking Station. Pick a craft or clone a vessel, point at where you want it, and click.
 
-It's a cheat, so it lives with the stock cheats: **Spawn Vessels**, under Cheats in the debug console (Alt+F12). The toolbar button and **Alt+F** open it straight there.
+It's a cheat, so it lives with the stock cheats: **Spawn Vessels**, under Cheats in the debug console (Alt+F12). **Alt+F** opens it straight there.
 
 ### Craft
 

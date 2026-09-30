@@ -56,8 +56,7 @@ public class Controller : MonoBehaviour
     public static readonly Setting<CrewMode> crewMode = CrewMode.Pilot;
     public static readonly Setting<bool> onlyNewKerbals = false;
 
-    // Settings.
-    public static readonly Setting<bool> showButton = true;
+    // Settings, only in settings.cfg.
     public static readonly Setting<bool> useKeybind = true;
     public static readonly Setting<KeyCode> keybindModifier = KeyCode.LeftAlt;
     public static readonly Setting<KeyCode> keybind = KeyCode.F;
@@ -69,7 +68,6 @@ public class Controller : MonoBehaviour
     internal Coroutine spawnRoutine;
 
     internal PlacementTool placementTool;
-    private ApplicationLauncherButton appLauncherButton;
 
     internal static bool InFlight => HighLogic.LoadedSceneIsFlight && FlightGlobals.ActiveVessel != null;
 
@@ -100,9 +98,6 @@ public class Controller : MonoBehaviour
 
         if (!File.Exists(craftPath.Value))
             craftPath.Value = CraftList.All.FirstOrDefault(c => c.MissingParts.Count == 0)?.path ?? "";
-
-        AddToolbarButton();
-        GameEvents.onGUIApplicationLauncherReady.Add(AddToolbarButton);
     }
 
     protected void Update()
@@ -114,21 +109,12 @@ public class Controller : MonoBehaviour
             else
                 Open();
         }
-
-        // Closed some other way, like the console's own close button.
-        if (appLauncherButton != null && appLauncherButton.toggleButton.CurrentState == KSP.UI.UIRadioButton.State.True && !IsOpen)
-            appLauncherButton.SetFalse(false);
     }
 
     protected void OnDestroy()
     {
         if (Instance == this)
             Instance = null;
-
-        GameEvents.onGUIApplicationLauncherReady.Remove(AddToolbarButton);
-
-        if (appLauncherButton && ApplicationLauncher.Instance)
-            ApplicationLauncher.Instance.RemoveModApplication(appLauncherButton);
 
         GlobalSettings.Save();
     }
@@ -140,25 +126,6 @@ public class Controller : MonoBehaviour
         GlobalSettings.Save();
         placementTool.Stop();
         DebugUI.Hide();
-    }
-
-    public void AddToolbarButton()
-    {
-        if (!showButton || appLauncherButton != null || !ApplicationLauncher.Ready)
-            return;
-
-        Texture buttonTexture = GameDatabase.Instance.GetTexture("LazySpawner/Textures/Icon", false);
-        ApplicationLauncher.AppScenes scenes = ApplicationLauncher.AppScenes.FLIGHT | ApplicationLauncher.AppScenes.MAPVIEW | ApplicationLauncher.AppScenes.TRACKSTATION;
-        appLauncherButton = ApplicationLauncher.Instance.AddModApplication(Open, Close, null, null, null, null, scenes, buttonTexture);
-    }
-
-    public void RemoveToolbarButton()
-    {
-        if (appLauncherButton == null)
-            return;
-
-        ApplicationLauncher.Instance.RemoveModApplication(appLauncherButton);
-        appLauncherButton = null;
     }
 
     #endregion
