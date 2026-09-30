@@ -212,7 +212,7 @@ public class SpawnScreen : MonoBehaviour
         Enable(modes[0], () => Controller.CanPlace);
         DebugUI.Tooltip(modes[0], "Pick a location or orbit in map view or vessel view.");
         Enable(modes[1], () => Controller.InFlight);
-        DebugUI.Tooltip(modes[1], "Scattered at random around the active vessel, keeping clear of it.");
+        DebugUI.Tooltip(modes[1], "Scatter them at random around the active vessel.");
         DebugUI.Spacer(content, 2);
 
         Transform place = Panel(content, () => Controller.situationMode == Controller.SituationMode.Place);
@@ -234,8 +234,8 @@ public class SpawnScreen : MonoBehaviour
         Transform match = Line(orbit, "Match Orbit Of");
         Enable(DebugUI.Button(match, "Vessel", () => Controller.SetOrbit(FlightGlobals.ActiveVessel.orbit), half), () => Controller.InFlight);
         Enable(DebugUI.Button(match, "Target", () => Controller.SetOrbit(FlightGlobals.fetch.VesselTarget.GetOrbit()), half), () => Controller.InFlight && FlightGlobals.fetch.VesselTarget?.GetOrbit() != null);
-        Toggle(orbit, "Advanced", Controller.advancedOrbit, "Describe the orbit with all its elements.");
-        Toggle(orbit, "Spread Evenly", Controller.spreadAlongOrbit, "Space the vessels out evenly around the orbit, like a constellation. Otherwise they fly in formation.", () => Controller.count.value > 1);
+        Toggle(orbit, "Advanced", Controller.advancedOrbit, "Set every orbital element.");
+        Toggle(orbit, "Spread Evenly", Controller.spreadAlongOrbit, "Space them evenly around the orbit, like a constellation, instead of flying in formation.", () => Controller.count.value > 1);
         Toggle(orbit, "Random Rotation", Controller.randomRotation);
 
         SitePicker(Panel(content, () => Controller.situationMode == Controller.SituationMode.LaunchSite));
@@ -244,7 +244,7 @@ public class SpawnScreen : MonoBehaviour
         // Crew.
         DebugUI.Heading(content, "Crew");
         Tabs(content, Controller.crewMode, "None", "Pilot", "Command", "Fill All");
-        Toggle(content, "Hire New Kerbals", Controller.onlyNewKerbals, "Always hire new kerbals, instead of using ones already at the space centre.", () => Controller.crewMode != CrewMode.None);
+        Toggle(content, "Always Hire New Kerbals", Controller.onlyNewKerbals, "Avoids using kerbals from the space centre.", () => Controller.crewMode != CrewMode.None);
         DebugUI.Spacer(content, 10);
 
         // What happens, set apart as a list, and the buttons that make it happen.
@@ -252,7 +252,7 @@ public class SpawnScreen : MonoBehaviour
         List<string> summary = new List<string>();
         refresh.Add(() => summary = Summary(out ready));
 
-        Transform box = DebugUI.Box(content);
+        Transform box = Show(DebugUI.Box(content), () => summary.Count > 0);
         for (int i = 0; i < 6; i++)
         {
             int line = i;
@@ -268,6 +268,8 @@ public class SpawnScreen : MonoBehaviour
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
         Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => ready && C.spawnRoutine == null);
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => C.spawnRoutine != null ? "Spawning…" : placing() ? "Place…" : "Spawn");
+        Behaviour placeTooltip = DebugUI.Tooltip(spawn, "Click where it should go, in the vessel view or the map view.").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
+        refresh.Add(() => placeTooltip.enabled = placing());
         DebugUI.Spacer(content);
 
         // What happened, with what can be done about it alongside.
@@ -276,7 +278,7 @@ public class SpawnScreen : MonoBehaviour
         Show(DebugUI.Button(result, "Switch To", () => FlightGlobals.SetActiveVessel(LastSpawned()), 80),
             () => HighLogic.LoadedSceneIsFlight && LastSpawned() != null && LastSpawned() != FlightGlobals.ActiveVessel);
         Button undo = Show(DebugUI.Button(result, "Undo", () => C.Undo(), 80), () => Removable() > 0);
-        DebugUI.Tooltip(undo, "Remove the vessels you just spawned. Their crew go home.");
+        DebugUI.Tooltip(undo, "Remove what you just spawned. Kerbals go back to the space centre, and new hires are let go.");
         Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? "Undo" : $"Undo ({Removable()})");
     }
 
@@ -365,7 +367,8 @@ public class SpawnScreen : MonoBehaviour
 
     #region Summary
 
-    // What Spawn will do, then anything to look out for, a line each. Problems stop it altogether.
+    // What will happen that the settings don't already say, then anything to look out for, a line each.
+    // Problems stop it altogether.
     private List<string> Summary(out bool ready)
     {
         ready = false;
@@ -394,17 +397,18 @@ public class SpawnScreen : MonoBehaviour
             return Warnings(problems);
 
         int number = Controller.count;
-        string what = number == 1 ? template.DisplayName : $"{number} × {template.DisplayName}";
-        List<string> lines = new List<string> { $"{what} {Where(template, number, problems, warnings)}.", Crew(template, number) };
+        List<string> lines = new List<string> { Where(template, number, problems, warnings), Crew(template, number) };
         ready = problems.Count == 0;
 
         lines.AddRange(Warnings(problems.Concat(warnings)));
+        lines.RemoveAll(line => line == null);
         return lines;
     }
 
     private static List<string> Warnings(IEnumerable<string> warnings) =>
         warnings.Select(w => orange + w).ToList();
 
+    // Only what the settings don't already say: what happens next, and what follows from them.
     private string Where(VesselTemplate template, int number, List<string> problems, List<string> warnings)
     {
         CelestialBody body = Controller.body.value;
@@ -415,26 +419,25 @@ public class SpawnScreen : MonoBehaviour
             case Controller.SituationMode.Place:
                 if (!Controller.CanPlace)
                     problems.Add("There's nothing to place them around.");
-                return "wherever you click, on the ground, in space or in the map";
+                return null;
 
             case Controller.SituationMode.Nearby:
                 Vessel active = FlightGlobals.ActiveVessel;
-                bool ground = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH;
-                return $"{(number > 1 ? "scattered" : "placed at random")} within {Controller.range.value:0} m of {active.GetDisplayName()}, {(ground ? "on the ground" : "in orbit")}";
+                string around = $"{(number > 1 ? "They'll be scattered" : "It'll appear somewhere")} around {active.GetDisplayName()}";
+                return active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH ? $"{around}, on the ground." : $"{around}, matching its orbit.";
 
             case Controller.SituationMode.LaunchSite:
-                LaunchSites.Site site = LaunchSites.Named(Controller.launchSite);
-                if (site == null)
+                if (LaunchSites.Named(Controller.launchSite) == null)
                 {
                     problems.Add("There are no launch sites.");
-                    return "";
+                    return null;
                 }
 
                 List<SpawnSituation> situations = C.PreviewSituations(template);
                 if (situations != null && PlacementTool.Clearance(template, situations, out Vessel there) < 0.5f)
                     warnings.Add($"{there.GetDisplayName()} is in the way.");
 
-                return $"{(number > 1 ? "side by side " : "")}at the {site.name} on {site.body.displayName.LocalizeRemoveGender()}";
+                return null;
 
             default:
                 Orbit orbit;
@@ -445,7 +448,7 @@ public class SpawnScreen : MonoBehaviour
                 catch
                 {
                     problems.Add("That's not an orbit.");
-                    return "";
+                    return null;
                 }
 
                 if (orbit.eccentricity < 1 && orbit.semiMajorAxis < 0)
@@ -460,15 +463,13 @@ public class SpawnScreen : MonoBehaviour
                 if (orbit.eccentricity < 1 && orbit.ApR > body.sphereOfInfluence)
                     warnings.Add($"The orbit leaves {bodyName}'s sphere of influence.");
 
-                string inclined = Math.Abs(orbit.inclination) > 0.05 ? $", inclined {orbit.inclination:0.#}°" : "";
-                if (orbit.eccentricity >= 1)
-                    return $"escaping {bodyName}{inclined}";
+                // The simple fields say it all. The elements don't make the shape obvious.
+                if (!Controller.advancedOrbit)
+                    return null;
 
-                string shape = orbit.PeA < 0 ? $"an orbit of {bodyName}"
-                    : orbit.eccentricity < 0.001 ? $"a {Distance(orbit.PeA)} orbit of {bodyName}"
-                    : $"a {Distance(orbit.PeA)} by {Distance(orbit.ApA)} orbit of {bodyName}";
-                string spread = number < 2 ? "in " : Controller.spreadAlongOrbit ? "spread evenly around " : "in formation in ";
-                return spread + shape + inclined;
+                return orbit.eccentricity >= 1 ? $"Escaping {bodyName}, periapsis {Distance(orbit.PeA)}."
+                    : orbit.eccentricity < 0.001 ? $"Circular, {Distance(orbit.PeA)} up."
+                    : $"Periapsis {Distance(orbit.PeA)}, apoapsis {Distance(orbit.ApA)}.";
         }
     }
 
@@ -479,7 +480,7 @@ public class SpawnScreen : MonoBehaviour
     {
         CrewMode mode = Controller.crewMode;
         if (mode == CrewMode.None)
-            return "No crew.";
+            return null;
 
         // The same seats the spawner fills: no external seats, command parts only unless filling all.
         List<Part> seats = template.Parts.Select(p => p.info?.partPrefab).Where(p => p != null && p.CrewCapacity > 0 && !p.HasModuleImplementing<KerbalSeat>()).ToList();
@@ -487,14 +488,17 @@ public class SpawnScreen : MonoBehaviour
             : seats.Where(p => mode == CrewMode.FillAll || p.HasModuleImplementing<ModuleCommand>()).Sum(p => p.CrewCapacity);
 
         if (each == 0)
-            return "There are no seats for crew.";
+            return "It'll have no crew, because it has no seats.";
 
+        // Whether kerbals leave the space centre, and how many join.
         int needed = each * number;
         int available = Controller.onlyNewKerbals ? 0 : HighLogic.CurrentGame.CrewRoster.Kerbals(ProtoCrewMember.KerbalType.Crew, ProtoCrewMember.RosterStatus.Available).Count();
         int hired = Math.Max(0, needed - available);
-        string crew = mode == CrewMode.Pilot ? (number == 1 ? "A pilot" : "A pilot each") : $"{needed} crew";
 
-        return hired == 0 ? $"{crew}." : hired == needed ? $"{crew}, newly hired." : $"{crew}, {hired} of them newly hired.";
+        string Kerbals(int n) => n == 1 ? "1 kerbal" : $"{n} kerbals";
+        return hired == 0 ? $"{Kerbals(needed)} will be taken from the space centre."
+            : hired == needed ? $"{Kerbals(needed)} will be hired."
+            : $"{Kerbals(needed - hired)} will be taken from the space centre, and {hired} more will be hired.";
     }
 
     #endregion

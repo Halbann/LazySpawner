@@ -34,7 +34,7 @@ Click to spawn. **Ctrl-click** keeps placing, **right-click** or **Escape** stop
 
 ### Crew
 
-**Pilot** puts a pilot in the first command seat, **Command** fills the command seats, and **Fill All** fills passenger seats too. Kerbals already at the space centre are used first, unless **Hire New Kerbals** is ticked. New hires are fully trained.
+**Pilot** puts a pilot in the first command seat, **Command** fills the command seats, and **Fill All** fills passenger seats too. Kerbals already at the space centre are used first, unless **Always Hire New Kerbals** is ticked. New hires are fully trained.
 
 ### Afterwards
 

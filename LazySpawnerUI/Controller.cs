@@ -34,7 +34,7 @@ public class Controller : MonoBehaviour
     public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", FindBody);
 
     // Nearby.
-    public static readonly TextField<float> range = new TextField<float>("Within (m)", "100", TextField<float>.ParseFloat, r => r >= 0, "Vessels appear at random around the active vessel, no further away than this.");
+    public static readonly TextField<float> range = new TextField<float>("Within (m)", "100", TextField<float>.ParseFloat, r => r >= 0, "How far from the active vessel they can be.");
 
     // Orbit.
     public static readonly Setting<bool> advancedOrbit = false;
@@ -44,15 +44,15 @@ public class Controller : MonoBehaviour
     public static readonly TextField<double> eccentricity = new TextField<double>("Eccentricity", "0", TextField<double>.ParseDouble, e => e >= 0);
     public static readonly TextField<double> lan = new TextField<double>("Asc. Node (°)", "0", TextField<double>.ParseDouble, tooltip: "Longitude of the ascending node.");
     public static readonly TextField<double> argPe = new TextField<double>("Arg. of Periapsis (°)", "0", TextField<double>.ParseDouble);
-    public static readonly TextField<double> meanAnomaly = new TextField<double>("Mean Anomaly (°)", "0", TextField<double>.ParseDouble, tooltip: "Where along the orbit the vessel is, right now.");
+    public static readonly TextField<double> meanAnomaly = new TextField<double>("Mean Anomaly (°)", "0", TextField<double>.ParseDouble, tooltip: "How far around the orbit from periapsis it is, now.");
     public static readonly Setting<bool> spreadAlongOrbit = true;
 
     // Launch site, by name.
     public static readonly Setting<string> launchSite = "";
 
     // Crew.
-    public static readonly Setting<CrewMode> crewMode = CrewMode.Pilot;
-    public static readonly Setting<bool> onlyNewKerbals = false;
+    public static readonly Setting<CrewMode> crewMode = CrewMode.FillCommand;
+    public static readonly Setting<bool> onlyNewKerbals = true;
 
     // Settings, only in settings.cfg.
     public static readonly Setting<bool> useKeybind = true;
@@ -99,9 +99,6 @@ public class Controller : MonoBehaviour
         // There's nothing to be near in the tracking station.
         if (HighLogic.LoadedScene == GameScenes.TRACKSTATION && situationMode == SituationMode.Nearby)
             situationMode.Value = SituationMode.Place;
-
-        if (!File.Exists(craftPath.Value))
-            craftPath.Value = CraftList.All.FirstOrDefault(c => c.MissingParts.Count == 0)?.path ?? "";
     }
 
     protected void Update()
