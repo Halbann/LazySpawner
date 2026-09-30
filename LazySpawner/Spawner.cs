@@ -48,6 +48,9 @@ public static class Spawner
         // Rovers and planes shouldn't roll away as soon as they touch the ground.
         if (situation.landed)
             SetBrakes(node);
+        // Launch clamps count as touching the ground, which makes the whole vessel "landed", even in orbit.
+        else
+            RemoveLaunchClamps(node);
 
         // The stock constructor registers the vessel's and parts' persistent IDs.
         ProtoVessel protoVessel = new ProtoVessel(node, HighLogic.CurrentGame);
@@ -186,6 +189,74 @@ public static class Spawner
 
         ConfigNode actionGroups = vesselNode.GetNode("ACTIONGROUPS") ?? vesselNode.AddNode("ACTIONGROUPS");
         actionGroups.SetValue(nameof(KSPActionGroup.Brakes), "True, 0", true);
+    }
+
+    #endregion
+
+    #region Launch Clamps
+
+    public static bool IsLaunchClamp(string partName)
+    {
+        Part prefab = PartLoader.getPartInfoByName(partName)?.partPrefab;
+        return prefab != null && prefab.HasModuleImplementing<LaunchClamp>();
+    }
+
+    // Remove launch clamps and anything attached to them, fixing up the part indices of what's left.
+    private static void RemoveLaunchClamps(ConfigNode vesselNode)
+    {
+        ConfigNode[] parts = vesselNode.GetNodes("PART");
+        bool[] remove = new bool[parts.Length];
+        bool any = false;
+
+        // Parents always come before their children, so one pass catches whole branches.
+        for (int i = 1; i < parts.Length; i++)
+        {
+            int.TryParse(parts[i].GetValue("parent"), out int parent);
+            remove[i] = IsLaunchClamp(parts[i].GetValue("name")) || parent >= 0 && parent < i && remove[parent];
+            any |= remove[i];
+        }
+
+        if (!any)
+            return;
+
+        int[] newIndex = new int[parts.Length];
+        for (int i = 0, next = 0; i < parts.Length; i++)
+            newIndex[i] = remove[i] ? -1 : next++;
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (remove[i])
+            {
+                vesselNode.nodes.Remove(parts[i]);
+                continue;
+            }
+
+            ConfigNode part = parts[i];
+
+            if (int.TryParse(part.GetValue("parent"), out int parent) && parent >= 0 && parent < parts.Length)
+                part.SetValue("parent", Math.Max(newIndex[parent], 0));
+
+            // Symmetry counterparts: drop the removed ones.
+            List<string> symmetry = part.GetValues("sym").ToList();
+            part.RemoveValues("sym");
+            foreach (string sym in symmetry)
+                if (int.TryParse(sym, out int index) && index >= 0 && index < parts.Length && newIndex[index] >= 0)
+                    part.AddValue("sym", newIndex[index]);
+
+            // Attach nodes: "id, index[,mesh]". Nodes that pointed at removed parts become empty.
+            foreach (ConfigNode.Value value in part.values)
+            {
+                if (value.name != "attN" && value.name != "srfN")
+                    continue;
+
+                string[] fields = value.value.Split(',');
+                if (fields.Length < 2 || !int.TryParse(fields[1].Trim(), out int index) || index < 0 || index >= parts.Length)
+                    continue;
+
+                fields[1] = " " + newIndex[index];
+                value.value = string.Join(",", fields);
+            }
+        }
     }
 
     #endregion

@@ -9,6 +9,7 @@ public class Ghost
 {
     public readonly GameObject gameObject;
     private readonly List<Material> materials = new List<Material>();
+    private readonly List<GameObject> launchClamps = new List<GameObject>();
     private Color color;
 
     private static Shader shader;
@@ -45,6 +46,8 @@ public class Ghost
                 continue;
 
             GameObject part = new GameObject(availablePart.name);
+            if (prefab.HasModuleImplementing<LaunchClamp>())
+                launchClamps.Add(part);
             part.transform.SetParent(gameObject.transform, false);
             part.transform.localPosition = i < template.partPositions.Count ? template.partPositions[i] : Vector3.zero;
             part.transform.localRotation = KSPUtil.ParseQuaternion(partNode.GetValue("rotation"));
@@ -131,6 +134,14 @@ public class Ghost
         color = newColor;
         foreach (Material material in materials)
             material.color = color;
+    }
+
+    // Launch clamps are only spawned on the ground.
+    public void ShowLaunchClamps(bool show)
+    {
+        foreach (GameObject clamp in launchClamps)
+            if (clamp.activeSelf != show)
+                clamp.SetActive(show);
     }
 
     public void SetPose(Vector3 position, Quaternion rotation)

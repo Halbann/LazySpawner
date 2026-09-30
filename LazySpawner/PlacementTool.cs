@@ -443,6 +443,7 @@ public class PlacementTool : MonoBehaviour
 
             Ghost ghost = ghosts[ghostsUsed++];
             ghost.SetPose(position, rotation);
+            ghost.ShowLaunchClamps(situation.landed);
             ghost.SetColor(color);
             ghost.Visible = true;
         }
