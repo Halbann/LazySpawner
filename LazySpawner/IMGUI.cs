@@ -489,6 +489,9 @@ public class IMGUI : MonoBehaviour
                     ready = false;
                 }
 
+                if (placementTool.PreviewBlocked)
+                    Warn("That's on top of another vessel.");
+
                 Toggle(randomRotation, "Random Heading");
                 break;
         }
@@ -905,8 +908,14 @@ public class IMGUI : MonoBehaviour
     private PlacementTool placementTool;
 
     // Previews use a cached template, rebuilt when the craft file or vessel changes.
-    private VesselTemplate previewTemplate;
-    private string previewKey;
+    // The key and template live together so that a hot reload resets both, not just the template.
+    private class PreviewCache
+    {
+        public string key;
+        public VesselTemplate template;
+    }
+
+    private PreviewCache previewCache;
 
     internal bool IsOpen => drawGUI && UIMasterController.Instance.IsUIShowing;
 
@@ -915,8 +924,6 @@ public class IMGUI : MonoBehaviour
 
     internal VesselTemplate PreviewTemplate()
     {
-        string key;
-
         if (source == Source.Craft)
         {
             if (!craftPath.Valid)
@@ -930,15 +937,22 @@ public class IMGUI : MonoBehaviour
         if (original == null || original.isEVA)
             return null;
 
-        key = $"{original.id}:{(original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}";
-        if (key != previewKey)
+        string key = $"{original.id}:{(original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}";
+        if (previewCache?.key != key)
         {
-            previewKey = key;
-            try { previewTemplate = VesselTemplate.FromVessel(original); }
-            catch { previewTemplate = null; }
+            previewCache = new PreviewCache { key = key };
+
+            try
+            {
+                previewCache.template = VesselTemplate.FromVessel(original);
+            }
+            catch (Exception e)
+            {
+                Logger.LogWarning($"Couldn't preview {original.GetDisplayName()}: {e}");
+            }
         }
 
-        return previewTemplate;
+        return previewCache.template;
     }
 
     internal List<SpawnSituation> PreviewSituations(VesselTemplate template)

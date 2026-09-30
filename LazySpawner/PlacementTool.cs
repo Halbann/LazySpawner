@@ -27,6 +27,9 @@ public class PlacementTool : MonoBehaviour
     private bool IsMapKind => Placing == Kind.Map || Placing == Kind.MapOrbit;
     public Kind Placing { get; private set; } = Kind.None;
 
+    // Whether the previewed vessels would land on top of another vessel.
+    public bool PreviewBlocked { get; private set; }
+
     private const string lockID = "LazySpawnerPlacement";
     private const int maxGhosts = 25;
     private const float ghostRange = 15000;
@@ -102,6 +105,7 @@ public class PlacementTool : MonoBehaviour
     protected void LateUpdate()
     {
         markers.Clear();
+        PreviewBlocked = false;
         int ghostsUsed = 0;
         bool lineUsed = false;
 
@@ -158,7 +162,10 @@ public class PlacementTool : MonoBehaviour
                 if (map)
                     AddMarkers(landed);
                 else
-                    ShowGhosts(template, landed, ref ghostsUsed, IsClear(template, landed) ? Ghost.validColor : Ghost.invalidColor);
+                {
+                    PreviewBlocked = !IsClear(template, landed);
+                    ShowGhosts(template, landed, ref ghostsUsed, PreviewBlocked ? Ghost.invalidColor : Ghost.validColor);
+                }
                 break;
 
             case IMGUI.SituationMode.Orbit:
