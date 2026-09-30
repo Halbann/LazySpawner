@@ -35,6 +35,8 @@ public class IMGUI : MonoBehaviour
     private ClickBlocker clickBlocker;
     private ApplicationLauncherButton appLauncherButton;
     private const string scrollLockID = "LazySpawnerScrollLock";
+    private const string typingLockID = "LazySpawnerTypingLock";
+    internal const string textFieldPrefix = "LazySpawnerField_";
 
     // Styles.
     private static GUIStyle topButtonStyle;
@@ -167,6 +169,7 @@ public class IMGUI : MonoBehaviour
 
         GameEvents.onGUIApplicationLauncherReady.Remove(AddToolbarButton);
         InputLockManager.RemoveControlLock(scrollLockID);
+        InputLockManager.RemoveControlLock(typingLockID);
 
         if (appLauncherButton && ApplicationLauncher.Instance)
             ApplicationLauncher.Instance.RemoveModApplication(appLauncherButton);
@@ -186,6 +189,7 @@ public class IMGUI : MonoBehaviour
             clickBlocker.Blocking = false;
 
         InputLockManager.RemoveControlLock(scrollLockID);
+        InputLockManager.RemoveControlLock(typingLockID);
 
         if (appLauncherButton && appLauncherButton.toggleButton.CurrentState == UIRadioButton.State.True)
             appLauncherButton.SetFalse(false);
@@ -258,6 +262,7 @@ public class IMGUI : MonoBehaviour
         {
             if (clickBlocker)
                 clickBlocker.Blocking = false;
+            InputLockManager.RemoveControlLock(typingLockID);
             return;
         }
 
@@ -270,7 +275,24 @@ public class IMGUI : MonoBehaviour
             Mathf.Clamp(windowRect.position.y, 0, Mathf.Max(0, Screen.height - windowRect.height))
         );
 
+        // Clicking anywhere else stops typing.
+        bool typing = GUI.GetNameOfFocusedControl().StartsWith(textFieldPrefix);
+        if (typing && Event.current.type == EventType.MouseDown && !windowRect.Contains(Event.current.mousePosition))
+        {
+            GUIUtility.keyboardControl = 0;
+            typing = false;
+        }
+
         windowRect = GUILayout.Window(windowID, windowRect, FillWindow, windowTitle, GUILayout.Height(1), GUILayout.Width(windowWidth), GUILayout.MaxWidth(windowWidth));
+
+        // Otherwise typing "1" into a field fires action group 1, and a space stages.
+        if (Event.current.type == EventType.Repaint)
+        {
+            if (typing)
+                InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLockID);
+            else
+                InputLockManager.RemoveControlLock(typingLockID);
+        }
 
         clickBlocker.Blocking = true;
         clickBlocker.UpdateRect(windowRect);
@@ -419,7 +441,8 @@ public class IMGUI : MonoBehaviour
             case SituationMode.Nearby:
                 range.Draw(ref ready);
                 Vessel active = FlightGlobals.ActiveVessel;
-                string where = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH ? "on the ground" : "in orbit";
+                string where = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH ? "on the ground"
+                    : active.situation == Vessel.Situations.FLYING ? "flying alongside" : "in orbit";
                 GUILayout.Label($"<i>Around {active.GetDisplayName()}, {where}.</i>", wrapStyle);
                 Toggle(randomRotation, "Random Rotation");
                 break;
@@ -628,6 +651,10 @@ public class IMGUI : MonoBehaviour
             "<b>Orbit</b> puts vessels in the orbit you describe. Several vessels can be spread evenly around it.\n" +
             "<b>Landed</b> puts vessels on the ground at the coordinates you give, side by side if there are several. " +
             "The default coordinates are the KSC runway.\n\n" +
+            "<b>Place...</b> lets you point at where you want vessels instead: at the ground or around the active vessel " +
+            "in the flight view, or at any planet or moon in the map. Click to spawn, Q/E to turn, " +
+            "shift-click to keep going, right-click to stop.\n\n" +
+            "<b>Undo</b> removes the vessels you just spawned, and sends their crew home.\n\n" +
             "Spawned vessels start unloaded and load in like any other vessel when they come into range.",
             wrapStyle);
     }
@@ -1028,9 +1055,13 @@ public class IMGUI : MonoBehaviour
             craftInfo.name = template.name;
             craftInfo.partCount = template.partCount;
         }
+        catch (CraftParser.MissingPartsException e)
+        {
+            craftInfo.error = e.ShortMessage;
+        }
         catch (Exception e)
         {
-            craftInfo.error = e.Message;
+            craftInfo.error = e.Message.Split('\n')[0];
         }
 
         return craftInfo;

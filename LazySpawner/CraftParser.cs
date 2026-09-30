@@ -39,7 +39,13 @@ public class CraftParser
 
     public class MissingPartsException : SpawnException
     {
-        public MissingPartsException(string message) : base(Localizer.Format("#autoLOC_6002424"), message) { }
+        public readonly List<string> missingParts;
+
+        public MissingPartsException(string message, IEnumerable<string> missingParts) : base(Localizer.Format("#autoLOC_6002424"), message) =>
+            this.missingParts = missingParts.ToList();
+
+        public string ShortMessage =>
+            $"{missingParts.Count} missing part{(missingParts.Count == 1 ? "" : "s")}: {string.Join(", ", missingParts.Take(3))}{(missingParts.Count > 3 ? "..." : "")}";
     }
 
     private readonly Dictionary<uint, PartInfo> partsByCraftID = new Dictionary<uint, PartInfo>();
@@ -200,7 +206,7 @@ public class CraftParser
             foreach (string missingPartName in missingParts)
                 sb.Append(missingPartName).Append("\n");
 
-            throw new MissingPartsException(Localizer.Format("#autoLOC_6002425", Localizer.Format(shipName), sb.ToString()));
+            throw new MissingPartsException(Localizer.Format("#autoLOC_6002425", Localizer.Format(shipName), sb.ToString()), missingParts);
         }
 
         if (parts.Count == 0)

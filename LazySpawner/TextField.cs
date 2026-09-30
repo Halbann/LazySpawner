@@ -75,6 +75,8 @@ public class TextField<T> : ITextField, ISetting
         if (!Valid)
             GUI.color = Color.red;
 
+        // Named so the window can tell when one of its fields is being typed in.
+        GUI.SetNextControlName(IMGUI.textFieldPrefix + title);
         text = GUILayout.TextField(text);
 
         GUI.color = previous;
