@@ -8,11 +8,11 @@ public interface ITextField
 {
     string Text { get; set; }
     bool Valid { get; }
-    void Draw(ref bool ready);
+    string Title { get; }
+    string Tooltip { get; }
 }
 
-// A labelled text box that parses its contents into a value, turns red when
-// the contents don't parse, and persists its text as a setting.
+// Text typed into a box, parsed into a value, and persisted as a setting.
 public class TextField<T> : ITextField, ISetting
 {
     public string title;
@@ -24,7 +24,6 @@ public class TextField<T> : ITextField, ISetting
 
     private readonly string defaultText;
     private string text;
-    private string last;
 
     public string Text
     {
@@ -37,6 +36,8 @@ public class TextField<T> : ITextField, ISetting
     }
 
     public bool Valid { get; private set; } = true;
+    public string Title => title;
+    public string Tooltip => tooltip;
 
     public TextField(string title, string text, Func<string, T> parser, Func<T, bool> validator = null, string tooltip = null)
     {
@@ -52,8 +53,6 @@ public class TextField<T> : ITextField, ISetting
 
     public void Refresh()
     {
-        last = text;
-
         try
         {
             value = parser(text);
@@ -64,29 +63,6 @@ public class TextField<T> : ITextField, ISetting
             value = default;
             Valid = false;
         }
-    }
-
-    public void Draw(ref bool ready)
-    {
-        GUILayout.BeginHorizontal();
-        GUILayout.Label(new GUIContent(title + ": ", tooltip), GUILayout.Width(IMGUI.LabelWidth));
-
-        Color previous = GUI.color;
-        if (!Valid)
-            GUI.color = Color.red;
-
-        // Named so the window can tell when one of its fields is being typed in.
-        GUI.SetNextControlName(IMGUI.textFieldPrefix + title);
-        text = GUILayout.TextField(text);
-
-        GUI.color = previous;
-
-        if (text != last)
-            Refresh();
-
-        ready = ready && Valid;
-
-        GUILayout.EndHorizontal();
     }
 
     #region Parsers

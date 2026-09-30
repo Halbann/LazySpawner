@@ -20,7 +20,7 @@ namespace LazySpawner;
 // Click to spawn. Q and E turn the vessel, shift-click keeps placing, right-click or escape stops.
 public class PlacementTool : MonoBehaviour
 {
-    public IMGUI gui;
+    public Controller gui;
 
     public enum Kind { None, Ground, Space, Map, MapOrbit }
 
@@ -83,7 +83,7 @@ public class PlacementTool : MonoBehaviour
         }
 
         Placing = kind;
-        placeHeading = IMGUI.heading.Valid ? IMGUI.heading.value : 0;
+        placeHeading = Controller.heading.Valid ? Controller.heading.value : 0;
 
         // Keep the camera, lose everything that would react to the clicks and keys.
         ControlTypes locks = ControlTypes.ALL_SHIP_CONTROLS | ControlTypes.PAUSE | ControlTypes.MAP_UI | ControlTypes.TARGETING;
@@ -95,6 +95,13 @@ public class PlacementTool : MonoBehaviour
         Placing = Kind.None;
         placed = null;
         InputLockManager.RemoveControlLock(lockID);
+    }
+
+    // Done placing: bring the screen back.
+    private void Finish()
+    {
+        Stop();
+        gui.Open();
     }
 
     #endregion
@@ -151,9 +158,9 @@ public class PlacementTool : MonoBehaviour
 
     private void UpdatePreview(VesselTemplate template, bool map, ref int ghostsUsed, ref bool lineUsed)
     {
-        switch (IMGUI.situationMode.Value)
+        switch (Controller.situationMode.Value)
         {
-            case IMGUI.SituationMode.Landed:
+            case Controller.SituationMode.Landed:
                 List<SpawnSituation> landed = gui.PreviewSituations(template);
                 if (landed == null)
                     return;
@@ -167,7 +174,7 @@ public class PlacementTool : MonoBehaviour
                 }
                 break;
 
-            case IMGUI.SituationMode.Orbit:
+            case Controller.SituationMode.Orbit:
                 if (!map)
                     return;
 
@@ -199,7 +206,7 @@ public class PlacementTool : MonoBehaviour
         // Stop on escape, or on a right click that wasn't a camera drag.
         if (Input.GetKeyDown(KeyCode.Escape))
         {
-            Stop();
+            Finish();
             return;
         }
 
@@ -210,7 +217,7 @@ public class PlacementTool : MonoBehaviour
         }
         else if (Input.GetMouseButtonUp(1) && (Input.mousePosition - rightClickStart).magnitude < 6 && Time.unscaledTime - rightClickTime < 0.4f)
         {
-            Stop();
+            Finish();
             return;
         }
 
@@ -249,14 +256,14 @@ public class PlacementTool : MonoBehaviour
             bool keepPlacing = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
             if (Placing == Kind.MapOrbit)
-                gui.SetOrbit(situations[0].orbit);
+                Controller.SetOrbit(situations[0].orbit);
             else if (situations[0].landed)
-                gui.SetLanded(situations[0].body, situations[0].latitude, situations[0].longitude, placeHeading, Placing != Kind.Ground || IMGUI.situationMode != IMGUI.SituationMode.Nearby);
+                Controller.SetLanded(situations[0].body, situations[0].latitude, situations[0].longitude, placeHeading, Placing != Kind.Ground || Controller.situationMode != Controller.SituationMode.Nearby);
 
             gui.SpawnAt(situations);
 
             if (!keepPlacing)
-                Stop();
+                Finish();
         }
     }
 
@@ -280,7 +287,7 @@ public class PlacementTool : MonoBehaviour
         CelestialBody body = active.mainBody;
         body.GetLatLonAlt(hit.point, out double latitude, out double longitude, out _);
 
-        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, IMGUI.count.Valid ? IMGUI.count.value : 1, false);
+        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, false);
 
         // Steep ground tips things over, and overlapping vessels explode.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
@@ -316,9 +323,9 @@ public class PlacementTool : MonoBehaviour
         Orbit orbit = Placement.OrbitFromWorldState(active.mainBody, point, active.obt_velocity, UT);
 
         placed = new List<SpawnSituation>();
-        int number = IMGUI.count.Valid ? IMGUI.count.value : 1;
+        int number = Controller.count.Valid ? Controller.count.value : 1;
         for (int i = 0; i < number; i++)
-            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, IMGUI.randomRotation)));
+            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation)));
 
         // Measured between the vessels' boxes, not their centres.
         float gap = Clearance(template, placed, out Vessel nearest);
@@ -373,7 +380,7 @@ public class PlacementTool : MonoBehaviour
             return;
         }
 
-        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, IMGUI.count.Valid ? IMGUI.count.value : 1, false);
+        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, false);
         placeValid = true;
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
@@ -425,7 +432,7 @@ public class PlacementTool : MonoBehaviour
         double UT = Planetarium.GetUniversalTime();
         Orbit orbit = Placement.OrbitFromWorldState(body, body.position + radial, prograde * speed, UT);
 
-        int number = IMGUI.count.Valid ? IMGUI.count.value : 1;
+        int number = Controller.count.Valid ? Controller.count.value : 1;
         placed = new List<SpawnSituation>();
         for (int i = 0; i < number; i++)
         {
@@ -452,7 +459,7 @@ public class PlacementTool : MonoBehaviour
                 return target.vessel.mainBody;
         }
 
-        return IMGUI.body.Valid ? IMGUI.body.value : null;
+        return Controller.body.Valid ? Controller.body.value : null;
     }
 
     private static bool RaySphere(Ray ray, Vector3 centre, float radius, out float distance)
@@ -495,13 +502,8 @@ public class PlacementTool : MonoBehaviour
         return smallest;
     }
 
-    private static bool MouseOverUI()
-    {
-        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-            return true;
-
-        return IMGUI.Instance != null && IMGUI.Instance.MouseOverWindow();
-    }
+    private static bool MouseOverUI() =>
+        EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
 
     private static string FormatDistance(float metres) =>
         metres < 1000 ? $"{metres:F0} m" : $"{metres / 1000:F2} km";

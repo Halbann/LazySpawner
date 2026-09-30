@@ -1,34 +1,38 @@
-A KSP mod for spawning vessels, lots of them if you like, from Flight or the Tracking Station. Pick a craft file or clone a vessel, point at where you want it, and click.
+A KSP mod for spawning vessels, lots of them if you like, from Flight or the Tracking Station. Pick a craft or clone a vessel, point at where you want it, and click.
 
-Open it with the toolbar button or **Alt+F**.
+It's a cheat, so it lives with the stock cheats: **Spawn Vessels**, under Cheats in the debug console (Alt+F12). The toolbar button and **Alt+F** open it straight there.
 
 ### Craft
 
-- **Craft File** spawns any .craft file. Paste a path or pick one with **Select**. Crafts with missing parts are caught before anything spawns.
-- **Clone Vessel** copies the active vessel, or the selected vessel in the Tracking Station.
+- **Change…** lists every craft in the save and the game, newest first, with their thumbnails. Type to search. Crafts with missing parts are greyed out, with the missing parts in a tooltip.
+- **Craft from anywhere:** copy a .craft file's path, from Explorer or Everything, quotes and all, and come back to the game. It's picked up from the clipboard. Pasting a path into the search box works too. Crafts from elsewhere stay in the list once used.
+- **Cloning:** the top of the list copies the active vessel, or the selected vessel in the Tracking Station.
+- **Stock…** picks with the stock craft browser instead.
 - **Count** spawns as many copies as you like. Big batches are spread over several frames, so the game doesn't freeze.
 
 ### Situation
 
 - **Nearby** scatters vessels around the active vessel. In orbit they match its velocity. On the ground they're spread out around it.
-- **Orbit** puts vessels in the orbit you describe, simply by altitude and inclination, or with every orbital element. Several vessels can be spread evenly around the orbit like a constellation, or flown in a tidy formation.
-- **Landed** puts vessels on the ground at the coordinates you give, side by side if there are several. The default coordinates are the KSC runway, facing down it. **Use Active Vessel's Position** copies where you are.
+- **Orbit** puts vessels in the orbit you describe, simply by altitude and inclination, or with every orbital element. Several vessels can be spread evenly around the orbit like a constellation, or flown in a tidy formation. **Match Active Vessel** and **Match Target** copy their orbits.
+- **Landed** puts vessels on the ground, side by side if there are several. The **Site** arrows go through the launch sites: the runway, the launch pad, and Making History's sites. **Use Active Vessel's Position** copies where you are.
+
+A sentence under the settings says exactly what **Spawn** will do, and what's wrong if it can't.
 
 ### Placing
 
-The window previews where vessels will go:
+The screen previews where vessels will go:
 
 - **Landed** shows see-through ghosts of the vessels in the flight view, and markers on the planet in map view. The ghosts turn red if they'd land on top of another vessel.
 - **Orbit** draws the orbit in map view, with a marker for each vessel.
 
-**Place...** lets you point at where you want them instead:
+**Place…** gets the console out of the way and lets you point at where you want them instead:
 
 - In the flight view near the ground, a ghost follows the mouse over the terrain, runways, and rooftops. It turns red if the ground is too steep or another vessel is in the way.
 - In the flight view in space, a ghost follows the mouse around the active vessel.
 - In map view or the Tracking Station, point at any planet or moon.
 - In **Orbit** mode, point anywhere around the planet in map view. The orbit is a circle through the mouse, facing you: look down on the pole for an equatorial orbit, or from the side for a polar one. **Q/E** reverse it.
 
-Click to spawn. **Q/E** turn the vessel, **shift-click** keeps placing, **right-click** or **Escape** stops.
+Click to spawn. **Q/E** turn the vessel, **shift-click** keeps placing, **right-click** or **Escape** stops. The console comes back when you're done.
 
 ### Crew
 
@@ -49,7 +53,7 @@ Requires KSP 1.12. No other dependencies.
 
 ### For modders
 
-`LazySpawner.dll` spawns vessels for any mod. It does the fiddly parts: turning a craft file into a vessel without building its parts, fresh IDs, robotics, launch clamps, brakes, crew and hiring, the control point, standing the vessel on the ground, and undo. Where vessels go is up to you. The window is `LazySpawnerUI.dll`, built on the same API. Reference `LazySpawner.dll`, add `[assembly: KSPAssemblyDependency("LazySpawner", 0, 3)]`, and have players install LazySpawner.
+`LazySpawner.dll` spawns vessels for any mod. It does the fiddly parts: turning a craft file into a vessel without building its parts, fresh IDs, robotics, launch clamps, brakes, crew and hiring, the control point, standing the vessel on the ground, and undo. Where vessels go is up to you. The Spawn Vessels screen is `LazySpawnerUI.dll`, built on the same API. Reference `LazySpawner.dll`, add `[assembly: KSPAssemblyDependency("LazySpawner", 0, 3)]`, and have players install LazySpawner.
 
 ```csharp
 VesselTemplate template = VesselTemplate.FromCraft(path); // Or FromVessel(vessel). Make it once, spawn it many times.
