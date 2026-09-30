@@ -1002,16 +1002,24 @@ public class IMGUI : MonoBehaviour
         public int partCount;
         public string error;
         public VesselTemplate template;
+        public float checkedTime;
     }
 
     // Parsing a craft is cheap enough to do on selection, and it catches missing parts up front.
     private CraftInfo GetCraftInfo(string path)
     {
-        DateTime modified = File.GetLastWriteTimeUtc(path);
-        if (craftInfo != null && craftInfo.path == path && craftInfo.modified == modified)
+        // This is asked for every frame, so only look at the file once a second.
+        if (craftInfo != null && craftInfo.path == path && Time.unscaledTime - craftInfo.checkedTime < 1f)
             return craftInfo;
 
-        craftInfo = new CraftInfo { path = path, modified = modified };
+        DateTime modified = File.GetLastWriteTimeUtc(path);
+        if (craftInfo != null && craftInfo.path == path && craftInfo.modified == modified)
+        {
+            craftInfo.checkedTime = Time.unscaledTime;
+            return craftInfo;
+        }
+
+        craftInfo = new CraftInfo { path = path, modified = modified, checkedTime = Time.unscaledTime };
 
         try
         {
