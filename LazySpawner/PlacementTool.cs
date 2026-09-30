@@ -39,9 +39,10 @@ public class PlacementTool : MonoBehaviour
     private readonly List<Ghost> ghosts = new List<Ghost>();
 
     // Map view.
-    private LineRenderer orbitLine;
-    private Material lineMaterial;
-    private readonly List<(Vector3 position, CelestialBody body)> markers = new List<(Vector3, CelestialBody)>();
+    private OrbitRenderer orbitRenderer;
+    private OrbitDriver orbitDriver;
+    // World positions, turned into screen positions as late as possible so they keep up with the camera.
+    private readonly List<(Vector3d position, CelestialBody body)> markers = new List<(Vector3d, CelestialBody)>();
     private static Texture2D markerTexture;
 
     // Placing.
@@ -69,10 +70,8 @@ public class PlacementTool : MonoBehaviour
         Stop();
         ClearGhosts();
 
-        if (orbitLine != null)
-            Destroy(orbitLine.gameObject);
-        if (lineMaterial != null)
-            Destroy(lineMaterial);
+        if (orbitRenderer != null)
+            Destroy(orbitRenderer.gameObject);
     }
 
     public void Begin(Kind kind)
@@ -145,8 +144,8 @@ public class PlacementTool : MonoBehaviour
             for (int i = ghostsUsed; i < ghosts.Count; i++)
                 ghosts[i].Visible = false;
 
-            if (orbitLine != null && !lineUsed)
-                orbitLine.enabled = false;
+            if (orbitRenderer != null && !lineUsed)
+                orbitRenderer.drawMode = OrbitRendererBase.DrawMode.OFF;
         }
     }
 
@@ -596,64 +595,44 @@ public class PlacementTool : MonoBehaviour
                 ? situation.body.GetWorldSurfacePosition(situation.latitude, situation.longitude, Math.Max(0, situation.body.TerrainAltitude(situation.latitude, situation.longitude)))
                 : situation.orbit.getPositionAtUT(UT);
 
-            markers.Add((ScaledSpace.LocalToScaledSpace(world), situation.body));
+            markers.Add((world, situation.body));
         }
     }
 
+    // Drawn by the stock orbit renderer, the way contracts draw their target orbits, so the preview
+    // takes exactly the same path as every other orbit line: same camera, same frame, same timing.
+    // It's the stock component itself rather than a subclass, because Unity's script execution
+    // order is set per class, and the timing is the whole point.
     private void DrawOrbit(Orbit orbit)
     {
-        if (orbitLine == null)
+        if (orbitRenderer == null)
         {
             GameObject line = new GameObject("LazySpawner Orbit Preview");
-            line.layer = 10; // Scaled scenery, which the map camera draws.
-            orbitLine = line.AddComponent<LineRenderer>();
-            orbitLine.useWorldSpace = true;
-            orbitLine.loop = false;
-            orbitLine.positionCount = 0;
-            orbitLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            orbitLine.receiveShadows = false;
+            if (ScaledSpace.Instance != null)
+                line.transform.parent = ScaledSpace.Instance.transform;
 
-            lineMaterial = new Material(Shader.Find("Legacy Shaders/Particles/Alpha Blended") ?? Shader.Find("Sprites/Default"));
-            orbitLine.material = lineMaterial;
+            // A driver that doesn't drive, just holds the orbit.
+            orbitDriver = line.AddComponent<OrbitDriver>();
+            orbitDriver.orbit = orbit;
+            orbitDriver.enabled = false;
+
+            orbitRenderer = line.AddComponent<OrbitRenderer>();
+            orbitRenderer.driver = orbitDriver;
+            orbitDriver.Renderer = orbitRenderer;
+
+            // Like a vessel's orbit, the line is brightest where the (first) vessel will be.
+            orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+            orbitRenderer.drawNodes = false;
+            orbitRenderer.autoTextureOffset = true;
+
+            // Orbit lines are drawn at half their node colour. Never fade out with zoom.
+            orbitRenderer.nodeColor = new Color(0.3f, 1.2f, 2f, 1f);
+            orbitRenderer.lowerCamVsSmaRatio = 0;
+            orbitRenderer.upperCamVsSmaRatio = float.MaxValue;
         }
 
-        const int segments = 180;
-        List<Vector3> points = new List<Vector3>(segments + 1);
-        CelestialBody body = orbit.referenceBody;
-
-        if (orbit.eccentricity < 1)
-        {
-            for (int i = 0; i <= segments; i++)
-            {
-                double trueAnomaly = 2 * Math.PI * i / segments;
-                points.Add(ScaledSpace.LocalToScaledSpace(body.position + orbit.getRelativePositionFromTrueAnomaly(trueAnomaly).xzy));
-            }
-        }
-        else
-        {
-            // Just the part of a hyperbola that's inside the sphere of influence.
-            double limit = Math.Acos(-1 / orbit.eccentricity) - 0.01;
-            for (int i = 0; i <= segments; i++)
-            {
-                double trueAnomaly = -limit + 2 * limit * i / segments;
-                Vector3d relative = orbit.getRelativePositionFromTrueAnomaly(trueAnomaly);
-                if (relative.magnitude > body.sphereOfInfluence)
-                    continue;
-
-                points.Add(ScaledSpace.LocalToScaledSpace(body.position + relative.xzy));
-            }
-        }
-
-        orbitLine.positionCount = points.Count;
-        orbitLine.SetPositions(points.ToArray());
-
-        // Constant width on screen.
-        float distance = (PlanetariumCamera.Camera.transform.position - body.scaledBody.transform.position).magnitude;
-        orbitLine.widthMultiplier = distance * 0.004f;
-
-        Color color = new Color(0.45f, 0.85f, 1f, 0.9f);
-        orbitLine.startColor = orbitLine.endColor = color;
-        orbitLine.enabled = true;
+        orbitDriver.orbit = orbit;
+        orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
     }
 
     #endregion
@@ -681,8 +660,9 @@ public class PlacementTool : MonoBehaviour
         Color previous = GUI.color;
         GUI.color = Placing == Kind.None || placeValid ? new Color(0.45f, 0.85f, 1f) : new Color(1f, 0.4f, 0.3f);
 
-        foreach ((Vector3 marker, CelestialBody body) in markers)
+        foreach ((Vector3d world, CelestialBody body) in markers)
         {
+            Vector3 marker = ScaledSpace.LocalToScaledSpace(world);
             Vector3 screen = camera.WorldToScreenPoint(marker);
             if (screen.z < 0)
                 continue;
