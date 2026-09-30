@@ -12,27 +12,25 @@ It's a cheat, so it lives with the stock cheats: **Spawn Vessels**, under Cheats
 
 ### Situation
 
+- **Place** lets you point at where you want them. See below.
 - **Nearby** scatters vessels around the active vessel. In orbit they match its velocity. On the ground they're spread out around it.
 - **Orbit** puts vessels in the orbit you describe, simply by altitude and inclination, or with every orbital element. Several vessels can be spread evenly around the orbit like a constellation, or flown in a tidy formation. **Match Active Vessel** and **Match Target** copy their orbits.
 - **Landed** puts vessels on the ground, side by side if there are several. The **Site** arrows go through the launch sites: the runway, the launch pad, and Making History's sites. **Use Active Vessel's Position** copies where you are.
 
-A sentence under the settings says exactly what **Spawn** will do, and what's wrong if it can't.
+A sentence under the settings says exactly what **Spawn** will do, and what's wrong if it can't. **Landed** shows see-through ghosts of the vessels in the flight view, and markers on the planet in map view; the ghosts turn red if they'd land on top of another vessel. **Orbit** draws the orbit in map view, with a marker for each vessel.
 
 ### Placing
 
-The screen previews where vessels will go:
+In **Place** mode, **Place…** gets the console out of the way and a ghost follows the mouse. What's under the mouse decides where it goes:
 
-- **Landed** shows see-through ghosts of the vessels in the flight view, and markers on the planet in map view. The ghosts turn red if they'd land on top of another vessel.
-- **Orbit** draws the orbit in map view, with a marker for each vessel.
+- The ground, in the flight view: on the terrain, runways, and rooftops. It turns red if the ground is too steep or another vessel is in the way.
+- The sky, in the flight view: beside the active vessel, matching its velocity, unless that's near the ground.
+- A planet or moon, in map view or the Tracking Station: on its surface.
+- Space, in map view: a circular orbit through the mouse, facing you. Look down on the pole for an equatorial orbit, or from the side for a polar one. **Q/E** reverse it.
 
-**Place…** gets the console out of the way and lets you point at where you want them instead:
+The editor's rotation keys turn it the same way they turn parts: 90° a press, or 5° with **Shift**. On the ground **Q/E** turn it. In space it starts nose prograde and roof up on screen, **WASDQE** rotate it, and **Space** resets it.
 
-- In the flight view near the ground, a ghost follows the mouse over the terrain, runways, and rooftops. It turns red if the ground is too steep or another vessel is in the way.
-- In the flight view in space, a ghost follows the mouse around the active vessel.
-- In map view or the Tracking Station, point at any planet or moon.
-- In **Orbit** mode, point anywhere around the planet in map view. The orbit is a circle through the mouse, facing you: look down on the pole for an equatorial orbit, or from the side for a polar one. **Q/E** reverse it.
-
-Click to spawn. **Q/E** turn the vessel, **shift-click** keeps placing, **right-click** or **Escape** stops. The console comes back when you're done.
+Click to spawn. **Ctrl-click** keeps placing, **right-click** or **Escape** stops. The console comes back when you're done.
 
 ### Crew
 

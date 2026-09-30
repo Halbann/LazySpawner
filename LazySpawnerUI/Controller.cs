@@ -28,8 +28,8 @@ public class Controller : MonoBehaviour
     public static readonly TextField<int> count = new TextField<int>("Count", "1", TextField<int>.ParseInt, c => c > 0 && c <= 1000);
 
     // Situation.
-    public enum SituationMode { Nearby, Orbit, Landed }
-    public static readonly Setting<SituationMode> situationMode = SituationMode.Nearby;
+    public enum SituationMode { Place, Nearby, Orbit, Landed }
+    public static readonly Setting<SituationMode> situationMode = SituationMode.Place;
     public static readonly Setting<bool> randomRotation = false;
     public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", FindBody);
 
@@ -71,8 +71,10 @@ public class Controller : MonoBehaviour
 
     internal static bool InFlight => HighLogic.LoadedSceneIsFlight && FlightGlobals.ActiveVessel != null;
 
+    internal static bool CanPlace => InFlight || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+
     // The screen is showing, or vessels are being placed with it out of the way.
-    internal bool IsOpen => SpawnScreen.Visible || placementTool.Placing != PlacementTool.Kind.None;
+    internal bool IsOpen => SpawnScreen.Visible || placementTool.Placing;
 
     #region Lifecycle
 
@@ -354,7 +356,7 @@ public class Controller : MonoBehaviour
     internal static void UseActiveVesselPosition()
     {
         Vessel vessel = FlightGlobals.ActiveVessel;
-        SetLanded(vessel.mainBody, vessel.latitude, vessel.longitude, Placement.Heading(vessel), false);
+        SetLanded(vessel.mainBody, vessel.latitude, vessel.longitude, Placement.Heading(vessel));
     }
 
     private static CelestialBody FindBody(string name)
@@ -451,22 +453,24 @@ public class Controller : MonoBehaviour
     internal void SpawnAt(List<SpawnSituation> situations)
     {
         if (randomRotation)
-            foreach (SpawnSituation situation in situations.Where(s => !s.landed))
-                situation.rotation = Random.rotation;
+            foreach (SpawnSituation situation in situations)
+            {
+                if (situation.landed)
+                    situation.heading = Random.Range(0f, 360f);
+                else
+                    situation.rotation = Random.rotation;
+            }
 
         if (spawnRoutine == null)
             spawnRoutine = StartCoroutine(SpawnRoutine(situations));
     }
 
-    internal static void SetLanded(CelestialBody landedBody, double lat, double lon, float newHeading, bool switchMode)
+    internal static void SetLanded(CelestialBody landedBody, double lat, double lon, float newHeading)
     {
         body.Text = landedBody.bodyName;
         latitude.Text = lat.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
         longitude.Text = lon.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
         heading.Text = newHeading.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-
-        if (switchMode)
-            situationMode.Value = SituationMode.Landed;
     }
 
     // Describe an orbit in the advanced orbit fields.
@@ -488,52 +492,11 @@ public class Controller : MonoBehaviour
         situationMode.Value = SituationMode.Orbit;
     }
 
-    // Which kind of placing the Place button starts, if any.
-    internal PlacementTool.Kind PlaceKind()
-    {
-        bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
-
-        switch (situationMode.Value)
-        {
-            case SituationMode.Landed:
-                return map ? PlacementTool.Kind.Map : InFlight ? PlacementTool.Kind.Ground : PlacementTool.Kind.None;
-            case SituationMode.Orbit:
-                return map || InFlight ? PlacementTool.Kind.MapOrbit : PlacementTool.Kind.None;
-            case SituationMode.Nearby:
-                if (!InFlight || map)
-                    return PlacementTool.Kind.None;
-                Vessel active = FlightGlobals.ActiveVessel;
-                return active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude < 2000
-                    ? PlacementTool.Kind.Ground : PlacementTool.Kind.Space;
-            default:
-                return PlacementTool.Kind.None;
-        }
-    }
-
     // Point at where the vessels go, with the console out of the way until done.
     internal void Place()
     {
-        PlacementTool.Kind kind = PlaceKind();
         DebugUI.Hide();
-
-        if (kind == PlacementTool.Kind.MapOrbit && !MapView.MapIsEnabled && HighLogic.LoadedSceneIsFlight)
-            StartCoroutine(PlaceInMap(kind));
-        else
-            placementTool.Begin(kind);
-    }
-
-    // Orbits are placed in the map, so go there first.
-    private IEnumerator PlaceInMap(PlacementTool.Kind kind)
-    {
-        MapView.EnterMapView();
-
-        for (int i = 0; i < 120 && !MapView.MapIsEnabled; i++)
-            yield return null;
-
-        if (MapView.MapIsEnabled)
-            placementTool.Begin(kind);
-        else
-            Open();
+        placementTool.Begin();
     }
 
     #endregion

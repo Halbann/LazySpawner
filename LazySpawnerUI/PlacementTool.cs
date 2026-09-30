@@ -1,6 +1,7 @@
 using KSP.Localization;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -13,19 +14,20 @@ namespace LazySpawner;
 // - Landed, map view: a marker on the planet for each vessel.
 // - Orbit, map view: the orbit, with a marker for each vessel.
 //
-// Placing, after pressing Place:
-// - Flight view, near the ground: the ghost follows the mouse over the terrain.
-// - Flight view, in space: the ghost follows the mouse around the active vessel.
-// - Map view: a marker follows the mouse over any planet or moon.
-// Click to spawn. Q and E turn the vessel, shift-click keeps placing, right-click or escape stops.
+// Placing, after pressing Place, goes by whatever is under the mouse:
+// - Flight view, the ground: the ghost follows the mouse over the terrain.
+// - Flight view, the sky: the ghost follows the mouse around the active vessel, unless that's near the ground.
+// - Map view, a planet or moon: a marker follows the mouse over it.
+// - Map view, space: a circular orbit through the mouse.
+// Click to spawn. The editor's rotation keys turn the vessel, ctrl-click keeps placing, right-click or escape stops.
 public class PlacementTool : MonoBehaviour
 {
     public Controller gui;
 
-    public enum Kind { None, Ground, Space, Map, MapOrbit }
+    private enum Kind { Ground, Space, Map, MapOrbit }
 
-    private bool IsMapKind => Placing == Kind.Map || Placing == Kind.MapOrbit;
-    public Kind Placing { get; private set; } = Kind.None;
+    public bool Placing { get; private set; }
+    private Kind kind;
 
     // Whether the previewed vessels would land on top of another vessel.
     public bool PreviewBlocked { get; private set; }
@@ -49,7 +51,8 @@ public class PlacementTool : MonoBehaviour
     private List<SpawnSituation> placed;
     private bool placeValid;
     private string placeInfo;
-    private float placeHeading;
+    private float placeHeading = 90;
+    private Quaternion spaceTurn = Quaternion.identity;
     private bool reverseOrbit;
     private Vector3 rightClickStart;
     private float rightClickTime;
@@ -74,16 +77,9 @@ public class PlacementTool : MonoBehaviour
             Destroy(orbitRenderer.gameObject);
     }
 
-    public void Begin(Kind kind)
+    public void Begin()
     {
-        if (kind == Kind.None)
-        {
-            Stop();
-            return;
-        }
-
-        Placing = kind;
-        placeHeading = Controller.heading.Valid ? Controller.heading.value : 0;
+        Placing = true;
 
         // Keep the camera, lose everything that would react to the clicks and keys.
         ControlTypes locks = ControlTypes.ALL_SHIP_CONTROLS | ControlTypes.PAUSE | ControlTypes.MAP_UI | ControlTypes.TARGETING;
@@ -92,7 +88,7 @@ public class PlacementTool : MonoBehaviour
 
     public void Stop()
     {
-        Placing = Kind.None;
+        Placing = false;
         placed = null;
         InputLockManager.RemoveControlLock(lockID);
     }
@@ -132,12 +128,8 @@ public class PlacementTool : MonoBehaviour
 
             bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
 
-            // Placing only makes sense in the view it started in.
-            if (IsMapKind != map && Placing != Kind.None)
-                Stop();
-
-            if (Placing != Kind.None)
-                UpdatePlacing(template, ref ghostsUsed, ref lineUsed);
+            if (Placing)
+                UpdatePlacing(template, map, ref ghostsUsed, ref lineUsed);
             else
                 UpdatePreview(template, map, ref ghostsUsed, ref lineUsed);
         }
@@ -189,18 +181,28 @@ public class PlacementTool : MonoBehaviour
         }
     }
 
-    private void UpdatePlacing(VesselTemplate template, ref int ghostsUsed, ref bool lineUsed)
+    private void UpdatePlacing(VesselTemplate template, bool map, ref int ghostsUsed, ref bool lineUsed)
     {
-        // Turn, or reverse an orbit.
-        if (Placing == Kind.MapOrbit)
+        // Turn with the editor's keys, the same way: 90° a press, or 5° with its fine tweak key.
+        float step = GameSettings.Editor_fineTweak.GetKey(true) ? 5 : 90;
+        bool Pressed(KeyBinding key) => key.GetKeyDown(true);
+        float roll = Pressed(GameSettings.Editor_rollLeft) ? step : Pressed(GameSettings.Editor_rollRight) ? -step : 0;
+
+        if (kind == Kind.MapOrbit)
         {
-            if (Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.E))
+            if (roll != 0)
                 reverseOrbit = !reverseOrbit;
         }
+        else if (kind == Kind.Ground)
+            placeHeading = (placeHeading - roll + 360f) % 360f;
         else
         {
-            float turn = (Input.GetKey(KeyCode.E) ? 1 : 0) - (Input.GetKey(KeyCode.Q) ? 1 : 0);
-            placeHeading = (placeHeading + turn * 90f * Time.unscaledDeltaTime + 360f) % 360f;
+            // Around fixed axes, as in the editor: the camera's up, its right, and prograde.
+            float pitch = Pressed(GameSettings.Editor_pitchUp) ? -step : Pressed(GameSettings.Editor_pitchDown) ? step : 0;
+            float yaw = Pressed(GameSettings.Editor_yawLeft) ? step : Pressed(GameSettings.Editor_yawRight) ? -step : 0;
+            spaceTurn = Quaternion.AngleAxis(roll, Vector3.up) * Quaternion.AngleAxis(pitch, Vector3.right) * Quaternion.AngleAxis(yaw, Vector3.forward) * spaceTurn;
+            if (Pressed(GameSettings.Editor_resetRotation))
+                spaceTurn = Quaternion.identity;
         }
 
         // Stop on escape, or on a right click that wasn't a camera drag.
@@ -225,24 +227,22 @@ public class PlacementTool : MonoBehaviour
         placeValid = false;
         placeInfo = null;
 
-        switch (Placing)
-        {
-            case Kind.Ground: PlaceOnGround(template); break;
-            case Kind.Space: PlaceInSpace(template); break;
-            case Kind.Map: PlaceOnMap(template); break;
-            case Kind.MapOrbit: PlaceOrbit(template); break;
-        }
+        // Whatever is under the mouse: the ground, or else space.
+        if (map)
+            kind = PlaceOnMap(template) ? Kind.Map : PlaceOrbit(template);
+        else
+            kind = PlaceOnGround(template) ? Kind.Ground : PlaceInSpace(template);
 
         if (placed == null)
             return;
 
-        if (Placing == Kind.MapOrbit)
+        if (kind == Kind.MapOrbit)
         {
             DrawOrbit(placed[0].orbit);
             lineUsed = true;
             AddMarkers(placed);
         }
-        else if (Placing == Kind.Map)
+        else if (kind == Kind.Map)
             AddMarkers(placed);
         else
             ShowGhosts(template, placed, ref ghostsUsed, placeValid ? Ghost.validColor : Ghost.invalidColor);
@@ -252,17 +252,9 @@ public class PlacementTool : MonoBehaviour
 
         if (clicked && placeValid && !MouseOverUI())
         {
-            List<SpawnSituation> situations = placed;
-            bool keepPlacing = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            gui.SpawnAt(placed);
 
-            if (Placing == Kind.MapOrbit)
-                Controller.SetOrbit(situations[0].orbit);
-            else if (situations[0].landed)
-                Controller.SetLanded(situations[0].body, situations[0].latitude, situations[0].longitude, placeHeading, Placing != Kind.Ground || Controller.situationMode != Controller.SituationMode.Nearby);
-
-            gui.SpawnAt(situations);
-
-            if (!keepPlacing)
+            if (!Input.GetKey(KeyCode.LeftControl) && !Input.GetKey(KeyCode.RightControl))
                 Finish();
         }
     }
@@ -271,17 +263,21 @@ public class PlacementTool : MonoBehaviour
 
     #region Placing
 
-    private void PlaceOnGround(VesselTemplate template)
+    // False if the mouse isn't on the ground, and the active vessel is far enough off it to place beside it instead.
+    private bool PlaceOnGround(VesselTemplate template)
     {
         Vessel active = FlightGlobals.ActiveVessel;
         if (active == null)
-            return;
+            return true;
 
         Ray ray = FlightCamera.fetch.mainCamera.ScreenPointToRay(MousePosition);
         if (!Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore))
         {
+            if (!active.LandedOrSplashed && active.situation != Vessel.Situations.PRELAUNCH && active.radarAltitude > 2000)
+                return false;
+
             placeInfo = "Point at the ground.";
-            return;
+            return true;
         }
 
         CelestialBody body = active.mainBody;
@@ -296,17 +292,18 @@ public class PlacementTool : MonoBehaviour
         bool clear = gap >= 0.5f;
 
         placeValid = slope < 30 && clear;
-        placeInfo = $"{template.DisplayName} · heading {placeHeading:F0}°" +
+        placeInfo = $"{template.DisplayName} · {HeadingText}" +
             (nearest != null && clear ? $" · {FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : "") +
             (slope >= 30 ? $"\n<color=#ff7766>Too steep ({slope:F0}°)</color>" : "") +
             (!clear ? $"\n<color=#ff7766>Touching {nearest.GetDisplayName()}</color>" : "");
+        return true;
     }
 
-    private void PlaceInSpace(VesselTemplate template)
+    private Kind PlaceInSpace(VesselTemplate template)
     {
         Vessel active = FlightGlobals.ActiveVessel;
         if (active == null)
-            return;
+            return Kind.Space;
 
         // The ghost moves over a plane through the active vessel, facing the camera.
         Camera camera = FlightCamera.fetch.mainCamera;
@@ -315,17 +312,23 @@ public class PlacementTool : MonoBehaviour
         Plane plane = new Plane(-camera.transform.forward, centre);
 
         if (!plane.Raycast(ray, out float enter))
-            return;
+            return Kind.Space;
 
         Vector3 point = ray.GetPoint(enter);
 
         double UT = Planetarium.GetUniversalTime();
         Orbit orbit = Placement.OrbitFromWorldState(active.mainBody, point, active.obt_velocity, UT);
 
+        // Nose prograde and roof up on screen, then turned. A control part's up is its nose, and its forward its belly.
+        Vector3 prograde = ((Vector3)active.obt_velocity).normalized;
+        Vector3 up = Vector3.ProjectOnPlane(camera.transform.up, prograde);
+        Quaternion frame = Quaternion.LookRotation(prograde, up.sqrMagnitude > 1e-4f ? up : point - (Vector3)active.mainBody.position);
+        Quaternion rotation = frame * spaceTurn * Quaternion.LookRotation(Vector3.down, Vector3.forward);
+
         placed = new List<SpawnSituation>();
         int number = Controller.count.Valid ? Controller.count.value : 1;
         for (int i = 0; i < number; i++)
-            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation)));
+            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation), rotation));
 
         // Measured between the vessels' boxes, not their centres.
         float gap = Clearance(template, placed, out Vessel nearest);
@@ -333,9 +336,11 @@ public class PlacementTool : MonoBehaviour
         placeValid = gap >= 1f;
         placeInfo = $"{template.DisplayName} · " +
             (nearest == null ? "" : placeValid ? $"{FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : $"<color=#ff7766>Touching {nearest.GetDisplayName()}</color>");
+        return Kind.Space;
     }
 
-    private void PlaceOnMap(VesselTemplate template)
+    // False if the mouse isn't over a planet or moon.
+    private bool PlaceOnMap(VesselTemplate template)
     {
         Camera camera = PlanetariumCamera.Camera;
         Ray ray = camera.ScreenPointToRay(MousePosition);
@@ -362,10 +367,7 @@ public class PlacementTool : MonoBehaviour
         }
 
         if (hitBody == null)
-        {
-            placeInfo = "Point at a planet or moon.";
-            return;
-        }
+            return false;
 
         Vector3d direction = (hitPoint - hitBody.scaledBody.transform.position).normalized;
         Vector3d surface = hitBody.position + direction * hitBody.Radius;
@@ -377,7 +379,7 @@ public class PlacementTool : MonoBehaviour
         if (hitBody.pqsController == null)
         {
             placeInfo = $"{name} has no surface.";
-            return;
+            return true;
         }
 
         placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, false);
@@ -387,16 +389,17 @@ public class PlacementTool : MonoBehaviour
         double terrain = hitBody.TerrainAltitude(latitude, longitude, true);
         string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · on the water" : "";
         placeInfo = $"{template.DisplayName} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
-            $"{latitude:F3}°, {longitude:F3}° · heading {placeHeading:F0}°";
+            $"{latitude:F3}°, {longitude:F3}° · {HeadingText}";
+        return true;
     }
 
     // A circular orbit through the point under the mouse, in the plane facing the camera.
     // Look down on the north pole for an equatorial orbit, from the side for a polar one.
-    private void PlaceOrbit(VesselTemplate template)
+    private Kind PlaceOrbit(VesselTemplate template)
     {
         CelestialBody body = MapBody();
         if (body == null)
-            return;
+            return Kind.MapOrbit;
 
         Camera camera = PlanetariumCamera.Camera;
         Ray ray = camera.ScreenPointToRay(MousePosition);
@@ -404,7 +407,7 @@ public class PlacementTool : MonoBehaviour
         Vector3 facing = camera.transform.forward;
 
         if (!new Plane(facing, centre).Raycast(ray, out float enter))
-            return;
+            return Kind.MapOrbit;
 
         Vector3d radial = ((Vector3d)(ray.GetPoint(enter) - centre)) * ScaledSpace.ScaleFactor;
         double radius = radial.magnitude;
@@ -414,13 +417,13 @@ public class PlacementTool : MonoBehaviour
         if (radius <= body.Radius)
         {
             placeInfo = $"Point further out from {name}.";
-            return;
+            return Kind.MapOrbit;
         }
 
         if (radius >= body.sphereOfInfluence)
         {
             placeInfo = $"That's outside {name}'s sphere of influence.";
-            return;
+            return Kind.MapOrbit;
         }
 
         // Anticlockwise as seen by the camera, like most orbits seen from the north. Q/E reverse it.
@@ -432,19 +435,17 @@ public class PlacementTool : MonoBehaviour
         double UT = Planetarium.GetUniversalTime();
         Orbit orbit = Placement.OrbitFromWorldState(body, body.position + radial, prograde * speed, UT);
 
+        // Together where you click. Spreading them around the orbit is for the Orbit mode.
         int number = Controller.count.Valid ? Controller.count.value : 1;
         placed = new List<SpawnSituation>();
         for (int i = 0; i < number; i++)
-        {
-            Orbit spread = i == 0 ? orbit : new Orbit(orbit.inclination, orbit.eccentricity, orbit.semiMajorAxis, orbit.LAN, orbit.argumentOfPeriapsis,
-                orbit.meanAnomalyAtEpoch + 2 * Math.PI * i / number, orbit.epoch, body);
-            placed.Add(SpawnSituation.Orbiting(spread));
-        }
+            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation)));
 
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
         placeInfo = $"{template.DisplayName} · {name} · altitude {FormatDistance((float)altitude)} · inclination {orbit.inclination:F1}°" +
             (inAtmosphere ? "\n<color=#ff7766>Inside the atmosphere</color>" : "");
+        return Kind.MapOrbit;
     }
 
     // The body the map is looking at, or the one in the window.
@@ -501,6 +502,9 @@ public class PlacementTool : MonoBehaviour
 
         return smallest;
     }
+
+    // Random headings are picked on spawning, so the ghost doesn't spin about.
+    private string HeadingText => Controller.randomRotation ? "random heading" : $"heading {placeHeading:F0}°";
 
     private static bool MouseOverUI() =>
         EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
@@ -620,7 +624,7 @@ public class PlacementTool : MonoBehaviour
         if (markers.Count > 0)
             DrawMarkers();
 
-        if (Placing != Kind.None)
+        if (Placing)
             DrawHint();
     }
 
@@ -631,7 +635,7 @@ public class PlacementTool : MonoBehaviour
             return;
 
         Color previous = GUI.color;
-        GUI.color = Placing == Kind.None || placeValid ? new Color(0.45f, 0.85f, 1f) : new Color(1f, 0.4f, 0.3f);
+        GUI.color = !Placing || placeValid ? new Color(0.45f, 0.85f, 1f) : new Color(1f, 0.4f, 0.3f);
 
         foreach ((Vector3d world, CelestialBody body) in markers)
         {
@@ -664,11 +668,14 @@ public class PlacementTool : MonoBehaviour
             padding = new RectOffset(8, 8, 6, 6),
         };
 
-        string controls = Placing == Kind.MapOrbit
-            ? "Click to spawn · Turn the camera to tilt the orbit · Q/E to reverse · Right-click to stop"
-            : Placing == Kind.Space
-            ? "Click to spawn · Shift-click to keep going · Right-click to stop"
-            : "Click to spawn · Q/E to turn · Shift-click to keep going · Right-click to stop";
+        string roll = GameSettings.Editor_rollLeft.name + "/" + GameSettings.Editor_rollRight.name;
+        string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(k => k.name));
+        string fine = $"{GameSettings.Editor_fineTweak.name} for 5°";
+        string controls = "Click to spawn · " + (kind == Kind.MapOrbit ? $"Turn the camera to tilt the orbit · {roll} to reverse · "
+            : Controller.randomRotation ? ""
+            : kind == Kind.Space ? $"{all} to rotate, {fine}, {GameSettings.Editor_resetRotation.name} to reset · "
+            : $"{roll} to turn, {fine} · ")
+            + "Ctrl-click to keep going · Right-click to stop";
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);

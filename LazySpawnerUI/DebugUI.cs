@@ -169,7 +169,7 @@ internal static class DebugUI
         return b;
     }
 
-    public static Toggle Toggle(Transform parent, string text, bool on, Action<bool> changed, ToggleGroup group = null)
+    public static Toggle Toggle(Transform parent, string text, bool on, Action<bool> changed)
     {
         GameObject clone = Clone(P.toggle, parent);
         TextMeshProUGUI tmp = clone.GetComponentInChildren<TextMeshProUGUI>();
@@ -180,27 +180,31 @@ internal static class DebugUI
         layout.minWidth = layout.preferredWidth = tmp.GetPreferredValues(text).x + 36;
 
         Toggle t = clone.GetComponent<Toggle>();
-        t.group = group;
         t.isOn = on;
         t.onValueChanged.AddListener(v => changed(v));
         return t;
     }
 
-    // Radio buttons in a row, one per name, for choosing an enum value.
-    public static Toggle[] Choice<T>(Transform parent, string title, Setting<T> setting, string[] names, Action changed = null) where T : Enum
+    // Buttons side by side, all the same width, for choosing one of them. Show which with Select.
+    public static Button[] Tabs(Transform parent, string[] names, Action<int> chosen)
     {
-        Transform row = Row(parent);
-        Label(row, title, LabelWidth);
-        ToggleGroup group = row.gameObject.AddComponent<ToggleGroup>();
+        Transform row = Row(parent, 2);
+        float width = names.Max(name => P.button.GetComponentInChildren<TextMeshProUGUI>().GetPreferredValues(name).x) + 16;
 
-        return names.Select((name, i) => Toggle(row, name, Convert.ToInt32(setting.Value) == i, on =>
+        return names.Select((name, i) =>
         {
-            if (!on)
-                return;
+            Button tab = Button(row, name, () => chosen(i));
+            LayoutElement layout = tab.GetComponent<LayoutElement>();
+            layout.minWidth = layout.preferredWidth = width;
+            return tab;
+        }).ToArray();
+    }
 
-            setting.Value = (T)Enum.ToObject(typeof(T), i);
-            changed?.Invoke();
-        }, group)).ToArray();
+    // The chosen tab looks like a stock button, and the rest are dark with light text, like the craft list.
+    public static void Select(Button tab, bool selected)
+    {
+        tab.image.color = selected ? Color.white : new Color(0.3f, 0.3f, 0.3f);
+        tab.GetComponentInChildren<TextMeshProUGUI>().color = selected ? P.button.GetComponentInChildren<TextMeshProUGUI>().color : new Color(0.85f, 0.85f, 0.85f);
     }
 
     // An empty scroll view, with the stock scrollbar, that takes up whatever height is left.
