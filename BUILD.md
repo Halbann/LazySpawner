@@ -16,5 +16,5 @@ Other ways to set the game path: https://kspbuildtools.readthedocs.io/en/stable/
 
 # Developing LazySpawner
 
-Debug builds opt in to [HotReloadKSP](https://github.com/KSPModdingLibs/HotReloadKSP): with it installed, rebuild and reload LazySpawner from its menu without restarting the game. Settings carry over, and the window reopens where it was.
+Debug builds opt in to [HotReloadKSP](https://github.com/Phantomical/HotReloadKSP): with it installed, rebuild and reload LazySpawner from its menu without restarting the game. Settings carry over, and the window reopens where it was.
 
