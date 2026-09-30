@@ -26,7 +26,8 @@ public class IMGUI : MonoBehaviour
     public static int sectionSpacing = 8;
 
     private int windowID;
-    private static Rect windowRect = new Rect(Screen.width * 0.04f, Screen.height * 0.1f, windowWidth, 0);
+    private Rect windowRect = new Rect(0, 0, windowWidth, 0);
+    private static readonly Dictionary<GameScenes, Rect> windowRects = new Dictionary<GameScenes, Rect>();
     private bool drawGUI = false;
     private bool showSettings = false;
     private bool showHelp = false;
@@ -117,10 +118,22 @@ public class IMGUI : MonoBehaviour
     {
         windowID = GUIUtility.GetControlID(FocusType.Passive);
 
+        // Remember where the window was in each scene. The tracking station's vessel list is on the left.
+        if (!windowRects.TryGetValue(HighLogic.LoadedScene, out windowRect))
+        {
+            float x = HighLogic.LoadedScene == GameScenes.TRACKSTATION ? 0.25f : 0.04f;
+            windowRect = new Rect(Screen.width * x, Screen.height * 0.1f, windowWidth, 0);
+        }
+
         Version version = Assembly.GetExecutingAssembly().GetName().Version;
         windowTitle = $"Lazy Spawner v{version.Major}.{version.Minor}.{version.Build}";
 
         clickBlocker = ClickBlocker.Create(UIMasterController.Instance.mainCanvas, nameof(LazySpawner));
+        placementTool = gameObject.AddComponent<PlacementTool>();
+        placementTool.gui = this;
+
+        // Fields that parse into game objects need the game to have loaded first.
+        body.Refresh();
 
         if (!File.Exists(craftPath.value))
             craftPath.Text = DefaultCraftPath() ?? "";
@@ -139,7 +152,7 @@ public class IMGUI : MonoBehaviour
                 Open();
         }
 
-        if (drawGUI && GameSettings.PAUSE.GetKeyUp())
+        if (drawGUI && GameSettings.PAUSE.GetKeyUp() && placementTool.Placing == PlacementTool.Kind.None)
             Close();
     }
 
@@ -147,6 +160,8 @@ public class IMGUI : MonoBehaviour
     {
         if (Instance == this)
             Instance = null;
+
+        windowRects[HighLogic.LoadedScene] = windowRect;
 
         GameEvents.onGUIApplicationLauncherReady.Remove(AddToolbarButton);
         InputLockManager.RemoveControlLock(scrollLockID);
@@ -227,7 +242,7 @@ public class IMGUI : MonoBehaviour
         {
             fontStyle = FontStyle.Bold,
         };
-        headingStyle.normal.textColor = Color.grey;
+        headingStyle.normal.textColor = new Color(0.85f, 0.85f, 0.85f);
 
         wrapStyle = new GUIStyle(GUI.skin.label)
         {
@@ -465,10 +480,16 @@ public class IMGUI : MonoBehaviour
         // Spawn.
         GUILayout.Space(sectionSpacing);
 
+        GUILayout.BeginHorizontal();
+
         GUIEnabled.Push(ready && spawnRoutine == null);
         if (GUILayout.Button(spawnRoutine == null ? "Spawn" : "Spawning..."))
             spawnRoutine = StartCoroutine(SpawnRoutine());
         GUIEnabled.Pop();
+
+        PlaceButton(ready);
+
+        GUILayout.EndHorizontal();
 
         StatusSection();
     }
@@ -600,19 +621,22 @@ public class IMGUI : MonoBehaviour
 
     #region Spawning
 
-    private IEnumerator SpawnRoutine()
+    private IEnumerator SpawnRoutine() =>
+        SpawnRoutine(null);
+
+    // Spawn at the given situations, or the ones the window describes.
+    private IEnumerator SpawnRoutine(List<SpawnSituation> situations)
     {
         status = "";
         statusIsError = false;
         lastSpawned.Clear();
 
         VesselTemplate template;
-        List<SpawnSituation> situations;
 
         try
         {
-            template = source == Source.Clone ? VesselTemplate.FromVessel(CloneSource()) : CraftParser.Parse(craftPath.value);
-            situations = CreateSituations(template, count);
+            template = CreateTemplate();
+            situations ??= CreateSituations(template, count, false);
         }
         catch (Exception e)
         {
@@ -666,6 +690,9 @@ public class IMGUI : MonoBehaviour
         spawnRoutine = null;
     }
 
+    private VesselTemplate CreateTemplate() =>
+        source == Source.Clone ? VesselTemplate.FromVessel(CloneSource()) : CraftParser.Parse(craftPath.value);
+
     private void ShowError(Exception e)
     {
         string title = "Spawning Failed";
@@ -676,20 +703,25 @@ public class IMGUI : MonoBehaviour
         else
             UnityEngine.Debug.LogException(e);
 
-        status = message;
+        // The popup has the whole message. A long one would make the window taller than the screen.
+        status = message.Split('\n')[0].TrimEnd(':', ' ');
         statusIsError = true;
 
         PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", title, message, Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
     }
 
-    private List<SpawnSituation> CreateSituations(VesselTemplate template, int number)
+    // Previews can't be random, or they'd jump about every frame.
+    private List<SpawnSituation> CreateSituations(VesselTemplate template, int number, bool preview)
     {
         List<SpawnSituation> situations = new List<SpawnSituation>();
+
+        if (situationMode != SituationMode.Nearby && !body.Valid)
+            throw new SpawnException($"There's no celestial body called {body.Text}.");
 
         switch (situationMode.Value)
         {
             case SituationMode.Nearby:
-                return Placement.Nearby(FlightGlobals.ActiveVessel, template, number, range, randomRotation);
+                return preview ? null : Placement.Nearby(FlightGlobals.ActiveVessel, template, number, range, randomRotation);
 
             case SituationMode.Orbit:
                 OrbitRotation rotation = randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde;
@@ -712,37 +744,76 @@ public class IMGUI : MonoBehaviour
                 break;
 
             case SituationMode.Landed:
-                CelestialBody b = body.value;
-                Quaternion frame = Placement.SurfaceFrame(b, latitude, longitude, heading);
-                Vector3d centre = b.GetWorldSurfacePosition(latitude, longitude, 0);
-                Vector3 side = frame * Vector3.right;
-                float spacing = template.radius * 2f + 4f;
-
-                for (int i = 0; i < number; i++)
-                {
-                    // A row, side by side, centred on the coordinates.
-                    Vector3d position = centre + (Vector3d)side * ((i - (number - 1) * 0.5f) * spacing);
-                    b.GetLatLonAlt(position, out double lat, out double lon, out _);
-                    float h = randomRotation ? Random.Range(0f, 360f) : heading;
-                    situations.Add(SpawnSituation.Landed(b, lat, lon, h));
-                }
-
-                break;
+                return LandedRow(template, body.value, latitude, longitude, heading, number, randomRotation && !preview);
         }
 
         return situations;
     }
 
-    // An orbit a short random distance from the reference orbit's current position, with the same velocity.
-    private static Orbit Cluster(Orbit reference, VesselTemplate template, int index)
+    // A row, side by side, centred on the coordinates.
+    internal static List<SpawnSituation> LandedRow(VesselTemplate template, CelestialBody body, double latitude, double longitude, float heading, int number, bool randomHeading)
+    {
+        List<SpawnSituation> situations = new List<SpawnSituation>();
+        Quaternion frame = Placement.SurfaceFrame(body, latitude, longitude, heading);
+        Vector3d centre = body.GetWorldSurfacePosition(latitude, longitude, 0);
+        Vector3 side = frame * Vector3.right;
+        float spacing = template.radius * 2f + 4f;
+
+        for (int i = 0; i < number; i++)
+        {
+            Vector3d position = number == 1 ? centre : centre + (Vector3d)side * ((i - (number - 1) * 0.5f) * spacing);
+            double lat = latitude, lon = longitude;
+            if (number > 1)
+                body.GetLatLonAlt(position, out lat, out lon, out _);
+
+            float h = randomHeading ? Random.Range(0f, 360f) : heading;
+            situations.Add(SpawnSituation.Landed(body, lat, lon, h));
+        }
+
+        return situations;
+    }
+
+    // A tidy formation around the reference orbit's current position, all with the same velocity.
+    // Grid points nearest the middle first, lined up with the direction of travel.
+    internal static Orbit Cluster(Orbit reference, VesselTemplate template, int index)
     {
         if (index == 0)
             return reference;
 
         double UT = Planetarium.GetUniversalTime();
-        Vector3d position = reference.getPositionAtUT(UT) + (Vector3d)Random.insideUnitSphere * (template.radius * 2f * Mathf.Pow(index, 1f / 3f) + template.radius * 2f);
+        CelestialBody b = reference.referenceBody;
+        Vector3d position = reference.getPositionAtUT(UT);
         Vector3d velocity = reference.getOrbitalVelocityAtUT(UT).xzy;
-        return Placement.OrbitFromWorldState(reference.referenceBody, position, velocity, UT);
+
+        Vector3d prograde = velocity.normalized;
+        Vector3d radial = Vector3d.Exclude(prograde, position - b.position).normalized;
+        Vector3d normal = Vector3d.Cross(prograde, radial);
+
+        Vector3 cell = GridCell(index);
+        double spacing = template.radius * 2 + 5;
+        Vector3d offset = (prograde * cell.x + radial * cell.y + normal * cell.z) * spacing;
+
+        return Placement.OrbitFromWorldState(b, position + offset, velocity, UT);
+    }
+
+    private static List<Vector3> gridCells;
+
+    private static Vector3 GridCell(int index)
+    {
+        if (gridCells == null || index >= gridCells.Count)
+        {
+            int n = Mathf.CeilToInt(Mathf.Pow(index + 1, 1f / 3f) / 2f) + 1;
+            gridCells = new List<Vector3>();
+
+            for (int x = -n; x <= n; x++)
+                for (int y = -n; y <= n; y++)
+                    for (int z = -n; z <= n; z++)
+                        gridCells.Add(new Vector3(x, y, z));
+
+            gridCells = gridCells.OrderBy(c => c.sqrMagnitude).ThenBy(c => Mathf.Abs(c.y)).ThenBy(c => c.x).ThenBy(c => c.z).ToList();
+        }
+
+        return gridCells[index];
     }
 
     private Orbit CreateOrbit(double meanAnomalyOffset)
@@ -786,6 +857,126 @@ public class IMGUI : MonoBehaviour
 
     #endregion
 
+    #region Placement
+
+    private PlacementTool placementTool;
+
+    // Previews use a cached template, rebuilt when the craft file or vessel changes.
+    private VesselTemplate previewTemplate;
+    private string previewKey;
+
+    internal bool IsOpen => drawGUI && UIMasterController.Instance.IsUIShowing;
+
+    internal bool MouseOverWindow() =>
+        drawGUI && windowRect.Contains(new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y));
+
+    internal VesselTemplate PreviewTemplate()
+    {
+        string key;
+
+        if (source == Source.Craft)
+        {
+            if (!craftPath.Valid)
+                return null;
+
+            CraftInfo info = GetCraftInfo(craftPath.value);
+            return info.error == null ? info.template : null;
+        }
+
+        Vessel original = CloneSource();
+        if (original == null || original.isEVA)
+            return null;
+
+        key = $"{original.id}:{(original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}";
+        if (key != previewKey)
+        {
+            previewKey = key;
+            try { previewTemplate = VesselTemplate.FromVessel(original); }
+            catch { previewTemplate = null; }
+        }
+
+        return previewTemplate;
+    }
+
+    internal List<SpawnSituation> PreviewSituations(VesselTemplate template)
+    {
+        if (!count.Valid)
+            return null;
+
+        try
+        {
+            return CreateSituations(template, count, true);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal void SpawnAt(List<SpawnSituation> situations)
+    {
+        if (spawnRoutine == null)
+            spawnRoutine = StartCoroutine(SpawnRoutine(situations));
+    }
+
+    internal void SetLanded(CelestialBody landedBody, double lat, double lon, float newHeading, bool switchMode)
+    {
+        body.Text = landedBody.bodyName;
+        latitude.Text = lat.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
+        longitude.Text = lon.ToString("F5", System.Globalization.CultureInfo.InvariantCulture);
+        heading.Text = newHeading.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+        if (switchMode)
+            situationMode.Value = SituationMode.Landed;
+    }
+
+    // Which kind of placing the Place button starts, if any.
+    private PlacementTool.Kind PlaceKind()
+    {
+        bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+
+        switch (situationMode.Value)
+        {
+            case SituationMode.Landed:
+                return map ? PlacementTool.Kind.Map : InFlight ? PlacementTool.Kind.Ground : PlacementTool.Kind.None;
+            case SituationMode.Nearby:
+                if (!InFlight || map)
+                    return PlacementTool.Kind.None;
+                Vessel active = FlightGlobals.ActiveVessel;
+                return active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude < 2000
+                    ? PlacementTool.Kind.Ground : PlacementTool.Kind.Space;
+            default:
+                return PlacementTool.Kind.None;
+        }
+    }
+
+    private void PlaceButton(bool ready)
+    {
+        PlacementTool.Kind kind = PlaceKind();
+        if (kind == PlacementTool.Kind.None)
+            return;
+
+        bool placing = placementTool.Placing != PlacementTool.Kind.None;
+        string tooltip = kind switch
+        {
+            PlacementTool.Kind.Map => "Click on any planet or moon to spawn there.",
+            PlacementTool.Kind.Ground => "Click on the ground to spawn there.",
+            _ => "Click in space around the active vessel to spawn there.",
+        };
+
+        GUIEnabled.Push(ready || placing);
+        if (GUILayout.Button(new GUIContent(placing ? "Stop Placing" : "Place...", tooltip)))
+        {
+            if (placing)
+                placementTool.Stop();
+            else
+                placementTool.Begin(kind);
+        }
+        GUIEnabled.Pop();
+    }
+
+    #endregion
+
     #region Craft Files
 
     private class CraftInfo
@@ -795,6 +986,7 @@ public class IMGUI : MonoBehaviour
         public string name;
         public int partCount;
         public string error;
+        public VesselTemplate template;
     }
 
     // Parsing a craft is cheap enough to do on selection, and it catches missing parts up front.
@@ -809,6 +1001,7 @@ public class IMGUI : MonoBehaviour
         try
         {
             VesselTemplate template = CraftParser.Parse(path);
+            craftInfo.template = template;
             craftInfo.name = template.name;
             craftInfo.partCount = template.partCount;
         }

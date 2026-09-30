@@ -45,6 +45,10 @@ public static class Spawner
         bool keptReference = MakeUnique(node, changedPIDs);
         UpdateRoboticsReferences(node, changedPIDs);
 
+        // Rovers and planes shouldn't roll away as soon as they touch the ground.
+        if (situation.landed)
+            SetBrakes(node);
+
         // The stock constructor registers the vessel's and parts' persistent IDs.
         ProtoVessel protoVessel = new ProtoVessel(node, HighLogic.CurrentGame);
 
@@ -157,6 +161,35 @@ public static class Spawner
 
     #endregion
 
+    #region Brakes
+
+    // The same as the stock mission spawner's "brakes on" option.
+    private static void SetBrakes(ConfigNode vesselNode)
+    {
+        bool hasBrakes = false;
+
+        foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
+        {
+            foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+            {
+                if (moduleNode.GetValue("name") != "ModuleWheelBrakes")
+                    continue;
+
+                // Persisted, so it overrides the action group when the wheel starts.
+                moduleNode.SetValue("brakeInput", 1, true);
+                hasBrakes = true;
+            }
+        }
+
+        if (!hasBrakes)
+            return;
+
+        ConfigNode actionGroups = vesselNode.GetNode("ACTIONGROUPS") ?? vesselNode.AddNode("ACTIONGROUPS");
+        actionGroups.SetValue(nameof(KSPActionGroup.Brakes), "True, 0", true);
+    }
+
+    #endregion
+
     #region Placement
 
     // Take a detached proto vessel and add it to the world, in the correct orientation and position.
@@ -182,33 +215,23 @@ public static class Spawner
 
         if (situation.landed)
         {
-            double terrain = body.TerrainAltitude(situation.latitude, situation.longitude, allowNegative: true);
-            bool splashed = body.ocean && terrain < 0;
-
-            Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
-            worldRotation = FaceHeading(frame * template.uprightRotation, referenceRelative, frame);
-
-            // Lift the vessel so its lowest part clears the ground. KSP puts it down properly
-            // when it goes off rails, but it should look right before then too.
-            Quaternion upright = Quaternion.Inverse(frame) * worldRotation;
-            float heightAboveBottom = template.HeightAboveBottom(upright);
-            double altitude = (splashed ? 0 : terrain) + heightAboveBottom + (splashed ? 0.5 : 1.5);
+            LandedPose pose = GetLandedPose(template, situation, referenceRelative);
+            worldRotation = pose.rotation;
 
             protoVessel.latitude = situation.latitude;
             protoVessel.longitude = situation.longitude;
-            protoVessel.altitude = altitude;
-            protoVessel.height = (float)(altitude - Math.Max(terrain, 0));
+            protoVessel.altitude = pose.altitude;
+            protoVessel.height = (float)(pose.altitude - Math.Max(pose.terrain, 0));
             protoVessel.normal = Quaternion.Inverse(worldRotation) * body.GetSurfaceNVector(situation.latitude, situation.longitude);
 
-            protoVessel.situation = splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
-            protoVessel.landed = !splashed;
-            protoVessel.splashed = splashed;
-            protoVessel.skipGroundPositioning = splashed;
+            protoVessel.situation = pose.splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
+            protoVessel.landed = !pose.splashed;
+            protoVessel.splashed = pose.splashed;
+            protoVessel.skipGroundPositioning = pose.splashed;
             protoVessel.vesselSpawning = true;
 
             // Landed vessels still have an orbit, which is just the ground moving under them.
-            Vector3d position = body.GetWorldSurfacePosition(situation.latitude, situation.longitude, altitude);
-            Orbit orbit = Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT);
+            Orbit orbit = Placement.OrbitFromWorldState(body, pose.position, body.getRFrmVel(pose.position), UT);
             protoVessel.orbitSnapShot = new OrbitSnapshot(orbit);
         }
         else
@@ -243,6 +266,60 @@ public static class Spawner
 
         if (protoVessel.vesselRef != null)
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
+    }
+
+    public struct LandedPose
+    {
+        public Vector3d position;
+        public Quaternion rotation;
+        public double altitude;
+        public double terrain;
+        public bool splashed;
+    }
+
+    // Where a landed vessel's root part goes, and how it's turned.
+    public static LandedPose GetLandedPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative)
+    {
+        CelestialBody body = situation.body;
+        LandedPose pose = new LandedPose();
+
+        pose.terrain = SurfaceAltitude(body, situation.latitude, situation.longitude);
+        pose.splashed = body.ocean && pose.terrain < 0;
+
+        Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
+        pose.rotation = FaceHeading(frame * template.uprightRotation, referenceRelative, frame);
+
+        // Lift the vessel so its lowest part clears the ground. KSP puts it down properly
+        // when it goes off rails, but it should look right before then too.
+        Quaternion upright = Quaternion.Inverse(frame) * pose.rotation;
+        float heightAboveBottom = template.HeightAboveBottom(upright);
+        pose.altitude = (pose.splashed ? 0 : pose.terrain) + heightAboveBottom + (pose.splashed ? 0.5 : 1.5);
+        pose.position = body.GetWorldSurfacePosition(situation.latitude, situation.longitude, pose.altitude);
+
+        return pose;
+    }
+
+    // The height of whatever's there to stand on. The terrain height doesn't include things like
+    // the runway and buildings, which are several metres higher at KSC, so when the scenery is
+    // loaded, ask it instead.
+    public static double SurfaceAltitude(CelestialBody body, double latitude, double longitude)
+    {
+        if (body.pqsController == null)
+            return 0;
+
+        double terrain = body.TerrainAltitude(latitude, longitude, allowNegative: true);
+
+        if (HighLogic.LoadedSceneIsFlight && body == FlightGlobals.currentMainBody)
+        {
+            const float height = 3000;
+            Vector3d up = body.GetSurfaceNVector(latitude, longitude);
+            Vector3d origin = body.GetWorldSurfacePosition(latitude, longitude, Math.Max(terrain, 0) + height);
+
+            if (Physics.Raycast(origin, -up, out RaycastHit hit, height * 2, 1 << 15, QueryTriggerInteraction.Ignore))
+                terrain = Math.Max(terrain, body.GetAltitude(hit.point));
+        }
+
+        return terrain;
     }
 
     // Turn a vessel about the local vertical so that its nose points along the frame's heading.

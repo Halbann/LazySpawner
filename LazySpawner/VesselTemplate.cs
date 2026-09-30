@@ -32,6 +32,46 @@ public class VesselTemplate
 
     public string DisplayName => KSP.Localization.Localizer.Format(name);
 
+    // Rotation of the part the vessel will most likely be controlled from, relative to the root.
+    // The spawner works out the real one once the crew are aboard. This is for previews.
+    public Quaternion ReferenceRotation
+    {
+        get
+        {
+            if (referenceRotation == null)
+                referenceRotation = EstimateReferenceRotation();
+
+            return referenceRotation.Value;
+        }
+    }
+
+    private Quaternion? referenceRotation;
+
+    private Quaternion EstimateReferenceRotation()
+    {
+        ConfigNode[] parts = node.GetNodes("PART");
+        if (parts.Length == 0)
+            return Quaternion.identity;
+
+        string reference = node.GetValue("ref");
+        ConfigNode found = null;
+
+        if (!string.IsNullOrEmpty(reference) && reference != "0")
+            found = Array.Find(parts, p => p.GetValue("uid") == reference);
+
+        Part Prefab(ConfigNode p) => PartLoader.getPartInfoByName(p.GetValue("name"))?.partPrefab;
+        bool IsControl(ConfigNode p) => Prefab(p)?.isControlSource > Vessel.ControlLevel.NONE;
+
+        if (found == null && IsControl(parts[0]))
+            found = parts[0];
+
+        found ??= Array.Find(parts, p => IsControl(p) && Prefab(p).CrewCapacity > 0)
+            ?? Array.Find(parts, IsControl)
+            ?? parts[0];
+
+        return KSPUtil.ParseQuaternion(found.GetValue("rotation"));
+    }
+
     public void CalculateBounds(Vector3 craftSize)
     {
         float furthest = 0;
