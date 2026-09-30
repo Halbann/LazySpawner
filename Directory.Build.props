@@ -1,0 +1,23 @@
+<Project>
+	<!-- Shared by every project in the repo. -->
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<TargetFramework>net48</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<RootNamespace>LazySpawner</RootNamespace>
+		<Version>0.3.0.0</Version>
+		<Copyright>Copyright © Halban 2026, CC BY SA</Copyright>
+		<RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
+		<!-- The backend and the UI are one mod, in one folder. -->
+		<KSPBT_ModRoot>$(RepoRoot)GameData/LazySpawner/</KSPBT_ModRoot>
+		<KSPBT_ModPluginFolder>Plugins</KSPBT_ModPluginFolder>
+	</PropertyGroup>
+	<ItemGroup>
+		<Publicize Include="Assembly-CSharp" />
+		<PackageReference Include="KSPBuildTools" Version="1.1.1" />
+		<PackageReference Include="Krafs.Publicizer" Version="2.3.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+	</ItemGroup>
+</Project>

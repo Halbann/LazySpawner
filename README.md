@@ -46,3 +46,22 @@ Click to spawn. **Q/E** turn the vessel, **shift-click** keeps placing, **right-
 - It's a cheat. Nothing costs funds, and nothing checks what you've unlocked.
 
 Requires KSP 1.12. No other dependencies.
+
+### For modders
+
+`LazySpawner.dll` spawns vessels for any mod. It does the fiddly parts: turning a craft file into a vessel without building its parts, fresh IDs, robotics, launch clamps, brakes, crew and hiring, the control point, standing the vessel on the ground, and undo. Where vessels go is up to you. The window is `LazySpawnerUI.dll`, built on the same API. Reference `LazySpawner.dll`, add `[assembly: KSPAssemblyDependency("LazySpawner", 0, 3)]`, and have players install LazySpawner.
+
+```csharp
+VesselTemplate template = VesselTemplate.FromCraft(path); // Or FromVessel(vessel). Make it once, spawn it many times.
+
+// Landed: the spawner finds the ground. In orbit: prograde unless given a rotation for the control part.
+Vessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading), new CrewSettings(CrewMode.Pilot));
+Vessel probe = Spawner.Spawn(template, SpawnSituation.Orbiting(orbit, rotation), new CrewSettings(CrewMode.None, kerbals: someKerbals));
+
+// Many at once, spread over frames. The situations can be worked out as it goes.
+StartCoroutine(Spawner.SpawnAll(template, situations, crew, spawnedSoFar));
+
+Spawner.Remove(rover); // Undo. Its crew go home, and kerbals hired for it are let go.
+```
+
+`Spawner.Pose` says where a vessel would appear and how it would be turned, for previews, and `VesselBounds.FromVessel` measures any vessel. Failures throw `SpawnException`, with a title and a message fit to show players.

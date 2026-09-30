@@ -1,6 +1,6 @@
 namespace LazySpawner;
 
-public static class Meta
+internal static class Meta
 {
     public const string name = "LazySpawner";
 }

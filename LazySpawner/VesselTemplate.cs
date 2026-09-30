@@ -1,36 +1,34 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 
 namespace LazySpawner;
 
-// A vessel in persistent save format (a VESSEL node), ready to be stamped out
-// any number of times by the Spawner. Built once per spawn request, from
-// either a craft file or an existing vessel, so that spawning many copies
-// doesn't mean parsing the craft many times.
+// A vessel ready to be spawned any number of times, from a craft file or an existing vessel.
+// Build one per kind of vessel, not one per spawn: the expensive work happens here, once.
+// Templates don't change after they're made, so one can be spawned from anywhere, any time.
 public class VesselTemplate
 {
-    // VESSEL node. Never handed to the game directly, always copied first.
-    public ConfigNode node;
+    // VESSEL node in persistent save format. Never handed to the game directly, always copied first.
+    internal ConfigNode node;
 
-    public string name;
-    public int partCount;
-    public bool fromCraft;
+    public string Name { get; internal set; }
+    public string DisplayName => KSP.Localization.Localizer.Format(Name);
 
-    // Rotation of the vessel's root part relative to a local surface frame
-    // (y = up, z = north), when the vessel sits the right way up on the ground.
-    // For craft this is the root part's rotation in the editor.
-    public Quaternion uprightRotation = Quaternion.identity;
+    // In the same order as the vessel's parts will be, the root part first.
+    public IReadOnlyList<TemplatePart> Parts { get; internal set; }
 
-    // Part positions relative to the root part, in the vessel's frame.
-    public List<Vector3> partPositions = new List<Vector3>();
+    // Rotation of the root part relative to a surface frame (y = up, z = north)
+    // when the vessel sits the right way up on the ground. For craft, the root part's rotation in the editor.
+    public Quaternion UprightRotation { get; internal set; } = Quaternion.identity;
 
-    // The vessel's size, as boxes in its own frame. Launch clamps only come along on the ground.
-    public Bounds landedBounds;
-    public Bounds spaceBounds;
+    // The vessel's size, as boxes in the root part's frame. Launch clamps only come along on the ground.
+    public Bounds LandedBounds { get; internal set; }
+    public Bounds SpaceBounds { get; internal set; }
 
-    public Bounds BoundsFor(bool landed) => landed ? landedBounds : spaceBounds;
+    public Bounds BoundsFor(bool landed) => landed ? LandedBounds : SpaceBounds;
 
     // Radius of a sphere around the root part that encloses the vessel.
     public float Radius(bool landed)
@@ -39,21 +37,11 @@ public class VesselTemplate
         return bounds.center.magnitude + bounds.extents.magnitude;
     }
 
-    public string DisplayName => KSP.Localization.Localizer.Format(name);
+    public static VesselTemplate FromCraft(string craftPath) => CraftParser.Parse(craftPath);
 
     // Rotation of the part the vessel will most likely be controlled from, relative to the root.
     // The spawner works out the real one once the crew are aboard. This is for previews.
-    public Quaternion ReferenceRotation
-    {
-        get
-        {
-            if (referenceRotation == null)
-                referenceRotation = EstimateReferenceRotation();
-
-            return referenceRotation.Value;
-        }
-    }
-
+    public Quaternion ReferenceRotation => referenceRotation ??= EstimateReferenceRotation();
     private Quaternion? referenceRotation;
 
     private Quaternion EstimateReferenceRotation()
@@ -81,17 +69,10 @@ public class VesselTemplate
         return KSPUtil.ParseQuaternion(found.GetValue("rotation"));
     }
 
-    public void CalculateBounds()
-    {
-        landedBounds = VesselBounds.FromTemplate(this, includeLaunchClamps: true);
-        spaceBounds = VesselBounds.FromTemplate(this, includeLaunchClamps: false);
-    }
-
     // Height of the root part above the vessel's lowest point, when turned this way.
-    public float HeightAboveBottom(Quaternion rotation)
+    internal float HeightAboveBottom(Quaternion rotation)
     {
-        Bounds bounds = landedBounds;
-        Vector3 min = bounds.min, max = bounds.max;
+        Vector3 min = LandedBounds.min, max = LandedBounds.max;
         float lowest = 0;
 
         for (int i = 0; i < 8; i++)
@@ -119,54 +100,46 @@ public class VesselTemplate
         VesselTemplate template = new VesselTemplate
         {
             node = new ConfigNode("VESSEL"),
-            name = vessel.vesselName,
-            partCount = proto.protoPartSnapshots.Count,
-            fromCraft = false,
+            Name = vessel.vesselName,
+            Parts = TemplatePart.From(proto),
+            // A loaded vessel can be measured as it is, procedural fairings and all.
+            LandedBounds = VesselBounds.FromVessel(vessel, includeLaunchClamps: true),
+            SpaceBounds = VesselBounds.FromVessel(vessel, includeLaunchClamps: false),
+            // Keep the vessel's attitude relative to the ground beneath it.
+            UprightRotation = Quaternion.Inverse(Placement.SurfaceFrame(vessel.mainBody, vessel.latitude, vessel.longitude, 0)) * vessel.transform.rotation,
         };
 
         proto.Save(template.node);
 
-        foreach (ProtoPartSnapshot snapshot in proto.protoPartSnapshots)
-            template.partPositions.Add(snapshot.position);
-
-        // A loaded vessel can be measured as it is, procedural fairings and all.
-        template.landedBounds = VesselBounds.FromVessel(vessel, includeLaunchClamps: true);
-        template.spaceBounds = VesselBounds.FromVessel(vessel, includeLaunchClamps: false);
-
-        // Keep the vessel's attitude relative to the ground beneath it.
-        CelestialBody body = vessel.mainBody;
-        Quaternion surfaceFrame = Placement.SurfaceFrame(body, vessel.latitude, vessel.longitude, 0);
-        template.uprightRotation = Quaternion.Inverse(surfaceFrame) * vessel.transform.rotation;
-
-        CleanClonedNode(template.node);
+        // Strip the things that belong to the original vessel and nobody else.
+        template.node.RemoveNode("TARGET");
+        template.node.RemoveNode("WAYPOINT");
+        template.node.GetNode("FLIGHTPLAN")?.ClearData();
+        template.node.SetValue("cln", false);
+        template.node.RemoveValue("clnRsn");
 
         return template;
     }
 
-    // Strip the things that belong to the original vessel and nobody else.
-    private static void CleanClonedNode(ConfigNode vesselNode)
-    {
-        vesselNode.RemoveNode("TARGET");
-        vesselNode.RemoveNode("WAYPOINT");
-
-        ConfigNode flightPlan = vesselNode.GetNode("FLIGHTPLAN");
-        flightPlan?.ClearData();
-
-        vesselNode.SetValue("cln", false);
-        vesselNode.RemoveValue("clnRsn");
-    }
-
     #endregion
-
-    #region Helpers
 
     internal static string Format(double value) =>
         value.ToString("R", CultureInfo.InvariantCulture);
 
     internal static string Format(float value) =>
         value.ToString("R", CultureInfo.InvariantCulture);
+}
 
-    #endregion
+// One part of a template, where it will be relative to the root part.
+public struct TemplatePart
+{
+    public AvailablePart info;
+    public string variant;
+    public Vector3 position;
+    public Quaternion rotation;
+
+    internal static List<TemplatePart> From(ProtoVessel proto) =>
+        proto.protoPartSnapshots.Select(s => new TemplatePart { info = s.partInfo, variant = s.moduleVariantName, position = s.position, rotation = s.rotation }).ToList();
 }
 
 public class SpawnException : Exception

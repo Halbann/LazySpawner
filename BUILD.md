@@ -6,15 +6,17 @@
 
 Building copies `GameData/LazySpawner` into your KSP install's GameData.
 
+There are two projects: `LazySpawner` is the backend other mods can use, and `LazySpawnerUI` is the window and placement tool, which uses the backend like any other mod would. Settings shared by both are in `Directory.Build.props`.
+
 Other ways to set the game path: https://kspbuildtools.readthedocs.io/en/stable/msbuild/ksp-install.html
 
 # Releasing LazySpawner
 
 1. Follow steps 1 and 2 from above.
-2. Bump `<Version>` in `LazySpawner/LazySpawner.csproj`.
+2. Bump `<Version>` in `Directory.Build.props`.
 3. Run `.\release.ps1`.
 
 # Developing LazySpawner
 
-Debug builds opt in to [HotReloadKSP](https://github.com/Phantomical/HotReloadKSP): with it installed, rebuild and reload LazySpawner from its menu without restarting the game. Settings carry over, and the window reopens where it was.
+Debug builds of the UI opt in to [HotReloadKSP](https://github.com/Phantomical/HotReloadKSP): with it installed, rebuild and reload LazySpawnerUI from its menu without restarting the game. Settings carry over, and the window reopens where it was. The backend can't be hot reloaded, because the UI would keep using the old copy, so backend changes need a restart.
 

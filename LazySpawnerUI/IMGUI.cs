@@ -614,7 +614,7 @@ public class IMGUI : MonoBehaviour
             ready = false;
         }
         else
-            GUILayout.Label($"{Localizer.Format(info.name)}, {info.partCount} parts", wrapStyle);
+            GUILayout.Label($"{info.template.DisplayName}, {info.template.Parts.Count} parts", wrapStyle);
     }
 
     private void Warn(string text)
@@ -692,29 +692,16 @@ public class IMGUI : MonoBehaviour
             yield break;
         }
 
-        CrewSettings crew = new CrewSettings(crewMode, onlyNewKerbals);
-        Stopwatch frameTimer = new Stopwatch();
-        Stopwatch totalTimer = Stopwatch.StartNew();
-        int spawned = 0;
+        Stopwatch timer = Stopwatch.StartNew();
+        IEnumerator batch = Spawner.SpawnAll(template, situations, new CrewSettings(crewMode, onlyNewKerbals), lastSpawned);
 
-        foreach (SpawnSituation situation in situations)
+        // Step through it here rather than as its own coroutine, to catch whatever goes wrong.
+        while (true)
         {
-            // Spread big batches over several frames so the game doesn't freeze.
-            if (frameTimer.ElapsedMilliseconds > 30)
-            {
-                status = $"Spawning... {spawned}/{situations.Count}";
-                yield return null;
-                frameTimer.Reset();
-            }
-
-            frameTimer.Start();
-
             try
             {
-                Vessel vessel = Spawner.Spawn(template, situation, crew);
-                if (vessel != null)
-                    lastSpawned.Add(vessel);
-                spawned++;
+                if (!batch.MoveNext())
+                    break;
             }
             catch (Exception e)
             {
@@ -722,14 +709,16 @@ public class IMGUI : MonoBehaviour
                 break;
             }
 
-            frameTimer.Stop();
+            status = $"Spawning... {lastSpawned.Count}/{situations.Count}";
+            yield return null;
         }
 
+        int spawned = lastSpawned.Count;
         if (spawned > 0)
         {
             status = spawned == 1
                 ? $"Spawned {template.DisplayName}."
-                : $"Spawned {spawned} × {template.DisplayName} in {totalTimer.Elapsed.TotalSeconds:N1} s.";
+                : $"Spawned {spawned} × {template.DisplayName} in {timer.Elapsed.TotalSeconds:N1} s.";
             statusIsError = false;
             ScreenMessages.PostScreenMessage(status, 3f, ScreenMessageStyle.UPPER_CENTER);
         }
@@ -738,7 +727,7 @@ public class IMGUI : MonoBehaviour
     }
 
     private VesselTemplate CreateTemplate() =>
-        source == Source.Clone ? VesselTemplate.FromVessel(CloneSource()) : CraftParser.Parse(craftPath.value);
+        source == Source.Clone ? VesselTemplate.FromVessel(CloneSource()) : VesselTemplate.FromCraft(craftPath.value);
 
     private void ShowError(Exception e)
     {
@@ -751,7 +740,7 @@ public class IMGUI : MonoBehaviour
             UnityEngine.Debug.LogException(e);
 
         // The popup has the whole message. A long one would make the window taller than the screen.
-        status = e is CraftParser.MissingPartsException missing ? missing.ShortMessage : message.Split('\n')[0].TrimEnd(':', ' ');
+        status = e is MissingPartsException missing ? missing.ShortMessage : message.Split('\n')[0].TrimEnd(':', ' ');
         statusIsError = true;
 
         PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", title, message, Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
@@ -768,10 +757,9 @@ public class IMGUI : MonoBehaviour
         switch (situationMode.Value)
         {
             case SituationMode.Nearby:
-                return preview ? null : Placement.Nearby(FlightGlobals.ActiveVessel, template, number, range, randomRotation);
+                return preview ? null : Formations.Nearby(FlightGlobals.ActiveVessel, template, number, range, randomRotation);
 
             case SituationMode.Orbit:
-                OrbitRotation rotation = randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde;
                 Orbit reference = CreateOrbit(0);
 
                 for (int i = 0; i < number; i++)
@@ -783,106 +771,18 @@ public class IMGUI : MonoBehaviour
                     else if (spreadAlongOrbit && reference.eccentricity < 1)
                         orbit = CreateOrbit(360.0 * i / number);
                     else
-                        orbit = Cluster(reference, template, i, randomRotation);
+                        orbit = Formations.Cluster(reference, template, i, randomRotation);
 
-                    situations.Add(SpawnSituation.Orbiting(orbit, rotation));
+                    situations.Add(SpawnSituation.Orbiting(orbit, randomRotation && !preview ? Random.rotation : null));
                 }
 
                 break;
 
             case SituationMode.Landed:
-                return LandedRow(template, body.value, latitude, longitude, heading, number, randomRotation && !preview);
+                return Formations.LandedRow(template, body.value, latitude, longitude, heading, number, randomRotation && !preview);
         }
 
         return situations;
-    }
-
-    // A row, side by side, centred on the coordinates.
-    internal static List<SpawnSituation> LandedRow(VesselTemplate template, CelestialBody body, double latitude, double longitude, float heading, int number, bool randomHeading)
-    {
-        List<SpawnSituation> situations = new List<SpawnSituation>();
-        Quaternion frame = Placement.SurfaceFrame(body, latitude, longitude, heading);
-        Vector3d centre = body.GetWorldSurfacePosition(latitude, longitude, 0);
-        Vector3 side = frame * Vector3.right;
-
-        // Side by side with a few metres between them, however wide the vessel is across the row.
-        float width;
-        if (randomHeading)
-            width = new Vector2(template.landedBounds.extents.x, template.landedBounds.extents.z).magnitude * 2 + template.landedBounds.center.magnitude;
-        else
-        {
-            Spawner.LandedPose pose = Spawner.GetLandedPose(template, SpawnSituation.Landed(body, latitude, longitude, heading), template.ReferenceRotation);
-            width = new VesselBounds.Box(template.landedBounds, Vector3.zero, pose.rotation).Extent(side) * 2;
-        }
-
-        float spacing = width + 4f;
-
-        for (int i = 0; i < number; i++)
-        {
-            Vector3d position = number == 1 ? centre : centre + (Vector3d)side * ((i - (number - 1) * 0.5f) * spacing);
-            double lat = latitude, lon = longitude;
-            if (number > 1)
-                body.GetLatLonAlt(position, out lat, out lon, out _);
-
-            float h = randomHeading ? Random.Range(0f, 360f) : heading;
-            situations.Add(SpawnSituation.Landed(body, lat, lon, h));
-        }
-
-        return situations;
-    }
-
-    // A tidy formation around the reference orbit's current position, all with the same velocity.
-    // Grid points nearest the middle first, lined up with the direction of travel.
-    internal static Orbit Cluster(Orbit reference, VesselTemplate template, int index, bool randomRotation)
-    {
-        if (index == 0)
-            return reference;
-
-        double UT = Planetarium.GetUniversalTime();
-        CelestialBody b = reference.referenceBody;
-        Vector3d position = reference.getPositionAtUT(UT);
-        Vector3d velocity = reference.getOrbitalVelocityAtUT(UT).xzy;
-
-        Vector3d prograde = velocity.normalized;
-        Vector3d radial = Vector3d.Exclude(prograde, position - b.position).normalized;
-        Vector3d normal = Vector3d.Cross(prograde, radial);
-
-        // Spacing along each axis of the formation, from the vessel's size in that direction.
-        // Vessels facing any which way need room to face any which way.
-        const float gap = 5;
-        Vector3d spacing;
-        if (randomRotation)
-            spacing = Vector3d.one * (template.Radius(false) * 2 + gap);
-        else
-        {
-            VesselBounds.Box box = new VesselBounds.Box(template.spaceBounds, Vector3.zero, Placement.Prograde(reference, UT, template.ReferenceRotation));
-            spacing = new Vector3d(box.Extent(prograde) * 2 + gap, box.Extent(radial) * 2 + gap, box.Extent(normal) * 2 + gap);
-        }
-
-        Vector3 cell = GridCell(index);
-        Vector3d offset = prograde * (cell.x * spacing.x) + radial * (cell.y * spacing.y) + normal * (cell.z * spacing.z);
-
-        return Placement.OrbitFromWorldState(b, position + offset, velocity, UT);
-    }
-
-    private static List<Vector3> gridCells;
-
-    private static Vector3 GridCell(int index)
-    {
-        if (gridCells == null || index >= gridCells.Count)
-        {
-            int n = Mathf.CeilToInt(Mathf.Pow(index + 1, 1f / 3f) / 2f) + 1;
-            gridCells = new List<Vector3>();
-
-            for (int x = -n; x <= n; x++)
-                for (int y = -n; y <= n; y++)
-                    for (int z = -n; z <= n; z++)
-                        gridCells.Add(new Vector3(x, y, z));
-
-            gridCells = gridCells.OrderBy(c => c.sqrMagnitude).ThenBy(c => Mathf.Abs(c.y)).ThenBy(c => c.x).ThenBy(c => c.z).ToList();
-        }
-
-        return gridCells[index];
     }
 
     private Orbit CreateOrbit(double meanAnomalyOffset)
@@ -892,9 +792,9 @@ public class IMGUI : MonoBehaviour
 
         // The epoch is now, so that the mean anomaly is where the vessel is when it appears.
         if (advancedOrbit)
-            return Placement.CreateOrbit(b, inclination, eccentricity, sma, lan, argPe, (meanAnomaly + meanAnomalyOffset) * Mathf.Deg2Rad, UT);
+            return new Orbit(inclination, eccentricity, sma, lan, argPe, (meanAnomaly + meanAnomalyOffset) * Mathf.Deg2Rad, UT, b);
         else
-            return Placement.CreateOrbit(b, inclination, 0, b.Radius + altitude, 0, 0, meanAnomalyOffset * Mathf.Deg2Rad, UT);
+            return new Orbit(inclination, 0, b.Radius + altitude, 0, 0, meanAnomalyOffset * Mathf.Deg2Rad, UT, b);
     }
 
     private void UseActiveVesselPosition()
@@ -993,8 +893,13 @@ public class IMGUI : MonoBehaviour
         }
     }
 
+    // Previews face the default way. Randomness comes last, so the preview doesn't jump about.
     internal void SpawnAt(List<SpawnSituation> situations)
     {
+        if (randomRotation)
+            foreach (SpawnSituation situation in situations.Where(s => !s.landed))
+                situation.rotation = Random.rotation;
+
         if (spawnRoutine == null)
             spawnRoutine = StartCoroutine(SpawnRoutine(situations));
     }
@@ -1099,8 +1004,6 @@ public class IMGUI : MonoBehaviour
     {
         public string path;
         public DateTime modified;
-        public string name;
-        public int partCount;
         public string error;
         public VesselTemplate template;
         public float checkedTime;
@@ -1124,12 +1027,9 @@ public class IMGUI : MonoBehaviour
 
         try
         {
-            VesselTemplate template = CraftParser.Parse(path);
-            craftInfo.template = template;
-            craftInfo.name = template.name;
-            craftInfo.partCount = template.partCount;
+            craftInfo.template = VesselTemplate.FromCraft(path);
         }
-        catch (CraftParser.MissingPartsException e)
+        catch (MissingPartsException e)
         {
             craftInfo.error = e.ShortMessage;
         }

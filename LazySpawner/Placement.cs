@@ -1,33 +1,31 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
-using Random = UnityEngine.Random;
 
 namespace LazySpawner;
 
-// Where and how a vessel should appear.
+// Where and how a vessel should appear: in orbit, or landed on the surface.
 public class SpawnSituation
 {
     public CelestialBody body;
-
-    // On the surface, otherwise in orbit.
     public bool landed;
 
     // Orbit.
     public Orbit orbit;
-    public OrbitRotation orbitRotation = OrbitRotation.Prograde;
-    public Quaternion worldRotation = Quaternion.identity; // OrbitRotation.Fixed only.
 
-    // Landed.
+    // Landed. The spawner finds the ground, and lifts the vessel so it stands on it.
     public double latitude;
     public double longitude;
-    public float heading;
+    public float heading; // Degrees clockwise from north, for the vessel's nose.
 
-    public static SpawnSituation Orbiting(Orbit orbit, OrbitRotation rotation = OrbitRotation.Prograde) => new SpawnSituation
+    // World rotation of the part the vessel is controlled from, as the navball sees it.
+    // By default, prograde with the roof away from the body in orbit, and upright facing the heading on the ground.
+    public Quaternion? rotation;
+
+    public static SpawnSituation Orbiting(Orbit orbit, Quaternion? rotation = null) => new SpawnSituation
     {
         body = orbit.referenceBody,
         orbit = orbit,
-        orbitRotation = rotation,
+        rotation = rotation,
     };
 
     public static SpawnSituation Landed(CelestialBody body, double latitude, double longitude, float heading) => new SpawnSituation
@@ -38,13 +36,6 @@ public class SpawnSituation
         longitude = longitude,
         heading = heading,
     };
-}
-
-public enum OrbitRotation
-{
-    Prograde,
-    Random,
-    Fixed,
 }
 
 public static class Placement
@@ -103,9 +94,6 @@ public static class Placement
 
     #region Orbits
 
-    public static Orbit CreateOrbit(CelestialBody body, double inclination, double eccentricity, double sma, double lan, double argPe, double meanAnomalyAtEpoch, double epoch) =>
-        new Orbit(inclination, eccentricity, sma, lan, argPe, meanAnomalyAtEpoch, epoch, body);
-
     // An orbit that passes through the given world position with the given world velocity.
     public static Orbit OrbitFromWorldState(CelestialBody body, Vector3d worldPosition, Vector3d worldVelocity, double UT)
     {
@@ -127,8 +115,8 @@ public static class Placement
         return Vessel.Situations.ORBITING;
     }
 
-    // World rotation that points the reference part's nose prograde with its roof facing away from the body.
-    public static Quaternion Prograde(Orbit orbit, double UT, Quaternion referenceRelative)
+    // World rotation that points a control part's nose prograde, with its roof facing away from the body.
+    public static Quaternion Prograde(Orbit orbit, double UT)
     {
         Vector3d position = orbit.getPositionAtUT(UT);
         Vector3d velocity = orbit.getOrbitalVelocityAtUT(UT).xzy;
@@ -138,94 +126,7 @@ public static class Placement
             velocity = Vector3d.Cross(radialOut, orbit.referenceBody.transform.up);
 
         // A reference transform's up is its nose, and its forward points out of its belly.
-        Quaternion reference = Quaternion.LookRotation(-radialOut, velocity);
-        return reference * Quaternion.Inverse(referenceRelative);
-    }
-
-    #endregion
-
-    #region Nearby
-
-    // Spread out vessels around a vessel, either around it in orbit or on the ground around it,
-    // keeping them clear of it, of other vessels, and of each other.
-    public static List<SpawnSituation> Nearby(Vessel vessel, VesselTemplate template, int count, float range, bool randomRotation)
-    {
-        const float margin = 3f;
-        const int attempts = 50;
-
-        List<SpawnSituation> situations = new List<SpawnSituation>();
-        bool landed = vessel.LandedOrSplashed || vessel.situation == Vessel.Situations.PRELAUNCH;
-        Bounds bounds = template.BoundsFor(landed);
-
-        VesselBounds.Box activeBox = VesselBounds.Box.Of(vessel);
-        List<VesselBounds.Box> taken = new List<VesselBounds.Box> { activeBox };
-        foreach (Vessel other in FlightGlobals.VesselsLoaded)
-            if (other != vessel)
-                taken.Add(VesselBounds.Box.Of(other));
-
-        // Centre to centre, from where the vessels would just touch out to the range.
-        float closest = activeBox.Radius() * 0.5f;
-        float furthest = Mathf.Max(range, activeBox.Radius() + template.Radius(landed) + margin * 2);
-
-        CelestialBody body = vessel.mainBody;
-        double UT = Planetarium.GetUniversalTime();
-        Vector3d up = body.GetSurfaceNVector(vessel.latitude, vessel.longitude);
-        float heading = Heading(vessel);
-
-        for (int i = 0; i < count; i++)
-        {
-            SpawnSituation best = null;
-            VesselBounds.Box bestBox = default;
-            float bestGap = float.MinValue;
-
-            // Rejection sampling. If the space is too crowded, take the roomiest spot found.
-            for (int attempt = 0; attempt < attempts && bestGap < margin; attempt++)
-            {
-                Vector3 direction = landed ? RandomOnDisc(up) : Random.onUnitSphere;
-                Vector3d position = (Vector3d)activeBox.centre + (Vector3d)direction * Random.Range(closest, furthest);
-
-                SpawnSituation situation;
-                VesselBounds.Box box;
-
-                if (landed)
-                {
-                    body.GetLatLonAlt(position, out double latitude, out double longitude, out _);
-                    situation = SpawnSituation.Landed(body, latitude, longitude, randomRotation ? Random.Range(0f, 360f) : heading);
-                    Spawner.LandedPose pose = Spawner.GetLandedPose(template, situation, template.ReferenceRotation);
-                    box = new VesselBounds.Box(bounds, pose.position, pose.rotation);
-                }
-                else
-                {
-                    Orbit orbit = OrbitFromWorldState(body, position, vessel.obt_velocity, UT);
-                    Quaternion rotation = randomRotation ? Random.rotation : Prograde(orbit, UT, template.ReferenceRotation);
-                    situation = SpawnSituation.Orbiting(orbit, OrbitRotation.Fixed);
-                    situation.worldRotation = rotation;
-                    box = new VesselBounds.Box(bounds, position, rotation);
-                }
-
-                float gap = float.MaxValue;
-                foreach (VesselBounds.Box other in taken)
-                    gap = Mathf.Min(gap, box.Gap(other));
-
-                if (gap > bestGap)
-                {
-                    bestGap = gap;
-                    best = situation;
-                    bestBox = box;
-                }
-            }
-
-            situations.Add(best);
-            taken.Add(bestBox);
-        }
-
-        return situations;
-    }
-
-    private static Vector3 RandomOnDisc(Vector3d normal)
-    {
-        Vector3 direction = Vector3.ProjectOnPlane(Random.onUnitSphere, normal);
-        return direction.sqrMagnitude < 1e-4f ? RandomOnDisc(normal) : direction.normalized;
+        return Quaternion.LookRotation(-radialOut, velocity);
     }
 
     #endregion

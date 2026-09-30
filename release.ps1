@@ -22,10 +22,9 @@ if ($versionFiles.Count -ne 1) {
 }
 $modName = $versionFiles[0].BaseName
 
-# Build in Release. SolutionDir is passed explicitly so RepoRoot resolves
-# the same way it does when building through the solution in the IDE.
+# Build the backend and the UI in Release.
 Write-Host "Building $modName (Release)..." -ForegroundColor Cyan
-dotnet build "$root\$modName\$modName.csproj" -c Release -p:SolutionDir="$root\"
+dotnet build "$root\$modName.slnx" -c Release
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 
 # Read the version KSPBT wrote into the packaged .version file.

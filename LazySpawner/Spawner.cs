@@ -1,8 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using UnityEngine;
-using Random = UnityEngine.Random;
 
 namespace LazySpawner;
 
@@ -14,26 +15,30 @@ public enum CrewMode
     FillAll,
 }
 
+// Who goes aboard. The mode picks which seats to fill, the first kerbal always a pilot. Seats go to
+// the listed kerbals first, who must be available, then to kerbals from the astronaut complex, then to new hires.
 public struct CrewSettings
 {
     public CrewMode mode;
     public bool onlyNewKerbals;
+    public List<ProtoCrewMember> kerbals;
 
-    public CrewSettings(CrewMode mode, bool onlyNewKerbals)
+    public CrewSettings(CrewMode mode, bool onlyNewKerbals = false, List<ProtoCrewMember> kerbals = null)
     {
         this.mode = mode;
         this.onlyNewKerbals = onlyNewKerbals;
+        this.kerbals = kerbals;
     }
 }
 
-// Stamps out copies of a VesselTemplate as new, unloaded vessels.
+// Stamps out copies of a VesselTemplate as new, unloaded vessels, in flight or the tracking station.
 // The vessels load normally when they come into range of the active vessel.
 public static class Spawner
 {
     // Kerbals hired to crew spawned vessels this session, so that removing the vessels can fire them again.
     private static readonly HashSet<string> hiredKerbals = new HashSet<string>();
 
-    public static Vessel Spawn(VesselTemplate template, SpawnSituation situation, CrewSettings crew)
+    public static Vessel Spawn(VesselTemplate template, SpawnSituation situation, CrewSettings crew = default)
     {
         if (template == null)
             throw new ArgumentNullException(nameof(template));
@@ -41,7 +46,11 @@ public static class Spawner
         if (HighLogic.CurrentGame?.flightState == null || FlightGlobals.fetch == null)
             throw new SpawnException("Vessels can only be spawned in flight or the tracking station.");
 
-        System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+        ProtoCrewMember busy = crew.kerbals?.Find(k => k.rosterStatus != ProtoCrewMember.RosterStatus.Available);
+        if (busy != null)
+            throw new SpawnException($"{busy.name} isn't available.");
+
+        Stopwatch timer = Stopwatch.StartNew();
 
         // Work on a copy so that the template can be used again.
         ConfigNode node = template.node.CreateCopy();
@@ -81,6 +90,25 @@ public static class Spawner
         Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")} in {timer.Elapsed.TotalMilliseconds:F1} ms ({prepared:F1} ms to prepare).");
 
         return protoVessel.vesselRef;
+    }
+
+    // Spawn many vessels, as many each frame as fit in the time, so big batches don't freeze the game.
+    // Run it as a coroutine. The situations can be worked out as it goes, and spawned vessels are added
+    // to the list as they appear. Stops at the first failure by throwing it.
+    public static IEnumerator SpawnAll(VesselTemplate template, IEnumerable<SpawnSituation> situations, CrewSettings crew, List<Vessel> spawned, double millisecondsPerFrame = 30)
+    {
+        Stopwatch frame = Stopwatch.StartNew();
+
+        foreach (SpawnSituation situation in situations)
+        {
+            if (frame.Elapsed.TotalMilliseconds > millisecondsPerFrame)
+            {
+                yield return null;
+                frame.Restart();
+            }
+
+            spawned.Add(Spawn(template, situation, crew));
+        }
     }
 
     #region Removal
@@ -155,6 +183,7 @@ public static class Spawner
         uint missionID = (uint)Guid.NewGuid().GetHashCode();
         uint launchID = game.launchID++;
         HashSet<uint> usedPIDs = new HashSet<uint>();
+        HashSet<uint> usedFlightIDs = new HashSet<uint>(game.flightState.protoVessels.SelectMany(v => v.protoPartSnapshots).Select(p => p.flightID));
 
         uint.TryParse(vesselNode.GetValue("ref"), out uint oldReference);
         uint newReference = 0;
@@ -165,7 +194,10 @@ public static class Spawner
         foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
         {
             uint.TryParse(partNode.GetValue("uid"), out uint oldFlightID);
-            uint flightID = ShipConstruction.GetUniqueFlightID(game.flightState);
+            // What ShipConstruction.GetUniqueFlightID does, without searching the whole save every time.
+            uint flightID;
+            do flightID = (uint)Guid.NewGuid().GetHashCode();
+            while (flightID == 0 || !usedFlightIDs.Add(flightID));
 
             if (oldReference != 0 && oldFlightID == oldReference && newReference == 0)
                 newReference = flightID;
@@ -272,7 +304,7 @@ public static class Spawner
 
     #region Launch Clamps
 
-    public static bool IsLaunchClamp(string partName)
+    private static bool IsLaunchClamp(string partName)
     {
         Part prefab = PartLoader.getPartInfoByName(partName)?.partPrefab;
         return prefab != null && prefab.HasModuleImplementing<LaunchClamp>();
@@ -359,54 +391,41 @@ public static class Spawner
         protoVessel.skipGroundPositioningForDroppedPart = false;
 
         Quaternion referenceRelative = ReferencePart(protoVessel)?.rotation ?? Quaternion.identity;
-        Quaternion worldRotation;
+        (Vector3d position, Quaternion rotation) = GetPose(template, situation, referenceRelative, out double height, out bool splashed);
 
         if (situation.landed)
         {
-            LandedPose pose = GetLandedPose(template, situation, referenceRelative);
-            worldRotation = pose.rotation;
-
             protoVessel.latitude = situation.latitude;
             protoVessel.longitude = situation.longitude;
-            protoVessel.altitude = pose.altitude;
-            protoVessel.height = (float)(pose.altitude - Math.Max(pose.terrain, 0));
-            protoVessel.normal = Quaternion.Inverse(worldRotation) * body.GetSurfaceNVector(situation.latitude, situation.longitude);
+            protoVessel.altitude = body.GetAltitude(position);
+            protoVessel.height = (float)height;
+            protoVessel.normal = Quaternion.Inverse(rotation) * body.GetSurfaceNVector(situation.latitude, situation.longitude);
 
-            protoVessel.situation = pose.splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
-            protoVessel.landed = !pose.splashed;
-            protoVessel.splashed = pose.splashed;
-            protoVessel.skipGroundPositioning = pose.splashed;
+            protoVessel.situation = splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
+            protoVessel.landed = !splashed;
+            protoVessel.splashed = splashed;
+            protoVessel.skipGroundPositioning = splashed;
             protoVessel.vesselSpawning = true;
 
             // Landed vessels still have an orbit, which is just the ground moving under them.
-            Orbit orbit = Placement.OrbitFromWorldState(body, pose.position, body.getRFrmVel(pose.position), UT);
-            protoVessel.orbitSnapShot = new OrbitSnapshot(orbit);
+            protoVessel.orbitSnapShot = new OrbitSnapshot(Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT));
         }
         else
         {
-            Orbit orbit = situation.orbit;
-            Vector3d position = orbit.getPositionAtUT(UT);
             body.GetLatLonAlt(position, out protoVessel.latitude, out protoVessel.longitude, out protoVessel.altitude);
-
-            worldRotation = situation.orbitRotation switch
-            {
-                OrbitRotation.Random => Random.rotation,
-                OrbitRotation.Fixed => situation.worldRotation,
-                _ => Placement.Prograde(orbit, UT, referenceRelative),
-            };
 
             protoVessel.height = -1;
             protoVessel.normal = Vector3.up;
-            protoVessel.situation = Placement.OrbitSituation(orbit);
+            protoVessel.situation = Placement.OrbitSituation(situation.orbit);
             protoVessel.landed = false;
             protoVessel.splashed = false;
             protoVessel.skipGroundPositioning = false;
             protoVessel.vesselSpawning = false;
-            protoVessel.orbitSnapShot = new OrbitSnapshot(orbit);
+            protoVessel.orbitSnapShot = new OrbitSnapshot(situation.orbit);
         }
 
         // Unloaded vessels keep their rotation relative to the body.
-        protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * worldRotation;
+        protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * rotation;
 
         // Add to the game. Load creates the (unloaded) vessel.
         HighLogic.CurrentGame.flightState.protoVessels.Add(protoVessel);
@@ -416,41 +435,43 @@ public static class Spawner
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
     }
 
-    public struct LandedPose
-    {
-        public Vector3d position;
-        public Quaternion rotation;
-        public double altitude;
-        public double terrain;
-        public bool splashed;
-    }
+    // Where a vessel would appear, right now, and how it would be turned: its root part's world position
+    // and rotation. The part it's controlled from isn't known until the crew are aboard, so this is a
+    // good guess rather than a promise. For previews, and for keeping vessels clear of each other.
+    public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation) =>
+        GetPose(template, situation, template.ReferenceRotation, out _, out _);
 
-    // Where a landed vessel's root part goes, and how it's turned.
-    public static LandedPose GetLandedPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative)
+    private static (Vector3d, Quaternion) GetPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative, out double height, out bool splashed)
     {
         CelestialBody body = situation.body;
-        LandedPose pose = new LandedPose();
+        Quaternion toRoot = Quaternion.Inverse(referenceRelative);
 
-        pose.terrain = SurfaceAltitude(body, situation.latitude, situation.longitude);
-        pose.splashed = body.ocean && pose.terrain < 0;
+        if (!situation.landed)
+        {
+            double UT = Planetarium.GetUniversalTime();
+            height = -1;
+            splashed = false;
+            return (situation.orbit.getPositionAtUT(UT), (situation.rotation ?? Placement.Prograde(situation.orbit, UT)) * toRoot);
+        }
+
+        double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude);
+        splashed = body.ocean && terrain < 0;
 
         Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
-        pose.rotation = FaceHeading(frame * template.uprightRotation, referenceRelative, frame);
+        Quaternion rotation = situation.rotation * toRoot ?? FaceHeading(frame * template.UprightRotation, referenceRelative, frame);
 
         // Lift the vessel so its lowest part clears the ground. KSP puts it down properly
         // when it goes off rails, but it should look right before then too.
-        Quaternion upright = Quaternion.Inverse(frame) * pose.rotation;
-        float heightAboveBottom = template.HeightAboveBottom(upright);
-        pose.altitude = (pose.splashed ? 0 : pose.terrain) + heightAboveBottom + 0.5;
-        pose.position = body.GetWorldSurfacePosition(situation.latitude, situation.longitude, pose.altitude);
+        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + 0.5;
+        double altitude = (splashed ? 0 : terrain) + height;
 
-        return pose;
+        return (body.GetWorldSurfacePosition(situation.latitude, situation.longitude, altitude), rotation);
     }
 
     // The height of whatever's there to stand on. The terrain height doesn't include things like
     // the runway and buildings, which are several metres higher at KSC, so when the scenery is
     // loaded, ask it instead.
-    public static double SurfaceAltitude(CelestialBody body, double latitude, double longitude)
+    private static double SurfaceAltitude(CelestialBody body, double latitude, double longitude)
     {
         if (body.pqsController == null)
             return 0;
@@ -528,10 +549,10 @@ public static class Spawner
 
     private static void Populate(ProtoVessel protoVessel, CrewSettings settings, SpawnSituation situation)
     {
-        if (settings.mode == CrewMode.None)
+        Queue<ProtoCrewMember> listed = new Queue<ProtoCrewMember>(settings.kerbals ?? Enumerable.Empty<ProtoCrewMember>());
+        if (settings.mode == CrewMode.None && listed.Count == 0)
             return;
 
-        double UT = Planetarium.GetUniversalTime();
         KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
         HashSet<string> originalRoster = new HashSet<string>(roster.kerbals.Keys);
         bool pilotAssigned = false;
@@ -550,15 +571,19 @@ public static class Spawner
 
             // Skip passenger parts if we're not filling all seats.
             bool isPassenger = !part.partPrefab.HasModuleImplementing<ModuleCommand>();
-            if (isPassenger && settings.mode != CrewMode.FillAll)
+            if (isPassenger && settings.mode != CrewMode.FillAll && listed.Count == 0)
                 continue;
 
             // Put a crew member in each seat.
             for (int seat = part.protoModuleCrew.Count; seat < capacity; seat++)
             {
+                bool full = settings.mode == CrewMode.None || settings.mode == CrewMode.Pilot && pilotAssigned;
+                if (full && listed.Count == 0)
+                    return;
+
                 // The very first crew member should always be a pilot.
-                ProtoCrewMember crewMember = !pilotAssigned
-                    ? GetAvailableCrewWithTrait(settings.onlyNewKerbals, KerbalRoster.pilotTrait)
+                ProtoCrewMember crewMember = listed.Count > 0 ? listed.Dequeue()
+                    : !pilotAssigned ? GetAvailableCrewWithTrait(settings.onlyNewKerbals, KerbalRoster.pilotTrait)
                     : GetAvailableCrew(settings.onlyNewKerbals);
 
                 if (crewMember == null)
@@ -580,9 +605,6 @@ public static class Spawner
                 part.protoModuleCrew.Add(crewMember);
                 part.protoCrewNames.Add(crewMember.name);
                 protoVessel.AddCrew(crewMember);
-
-                if (settings.mode == CrewMode.Pilot)
-                    return;
             }
         }
     }

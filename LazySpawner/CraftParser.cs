@@ -19,7 +19,7 @@ namespace LazySpawner;
 // Craft: link/sym/attN/srfN reference parts by name_craftID.
 // Persistent: parent/sym/attN/srfN reference parts by index, and parts must be listed
 // in top-down tree order so that a part's parent is always loaded before it.
-public class CraftParser
+internal class CraftParser
 {
     private class PartInfo
     {
@@ -35,17 +35,6 @@ public class CraftParser
         public readonly List<uint> symmetry = new List<uint>();
         public readonly List<string> attachNodes = new List<string>();
         public string srfAttachNode;
-    }
-
-    public class MissingPartsException : SpawnException
-    {
-        public readonly List<string> missingParts;
-
-        public MissingPartsException(string message, IEnumerable<string> missingParts) : base(Localizer.Format("#autoLOC_6002424"), message) =>
-            this.missingParts = missingParts.ToList();
-
-        public string ShortMessage =>
-            $"{missingParts.Count} missing part{(missingParts.Count == 1 ? "" : "s")}: {string.Join(", ", missingParts.Take(3))}{(missingParts.Count > 3 ? "..." : "")}";
     }
 
     private readonly Dictionary<uint, PartInfo> partsByCraftID = new Dictionary<uint, PartInfo>();
@@ -64,7 +53,7 @@ public class CraftParser
         return new CraftParser().Parse(craftNode);
     }
 
-    public VesselTemplate Parse(ConfigNode craftNode)
+    private VesselTemplate Parse(ConfigNode craftNode)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
@@ -89,15 +78,14 @@ public class CraftParser
         if (sortedParts.Count != parts.Count)
             throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has parts that aren't attached to the rest of the craft.");
 
+        List<TemplatePart> templateParts = new List<TemplatePart>();
         VesselTemplate template = new VesselTemplate
         {
-            name = shipName,
-            fromCraft = true,
-            partCount = sortedParts.Count,
-            uprightRotation = root.rotation,
+            node = new ConfigNode("VESSEL"),
+            Name = shipName,
+            Parts = templateParts,
+            UprightRotation = root.rotation,
         };
-
-        ConfigNode vesselNode = template.node = new ConfigNode("VESSEL");
 
         // Parts.
 
@@ -110,10 +98,9 @@ public class CraftParser
         {
             Vector3 position = inverseRoot * (info.position - root.position);
             Quaternion rotation = inverseRoot * info.rotation;
-            template.partPositions.Add(position);
-
             ConfigNode partNode = CreatePartNode(info, position, rotation, missionFlag, out int inverseStage);
-            vesselNode.AddNode(partNode);
+            template.node.AddNode(partNode);
+            templateParts.Add(new TemplatePart { info = info.availablePart, variant = partNode.GetValue("moduleVariantName"), position = position, rotation = rotation });
 
             highestStage = Math.Max(highestStage, inverseStage);
 
@@ -134,18 +121,19 @@ public class CraftParser
         if (vesselNaming != null)
         {
             vesselType = vesselNaming.vesselType;
-            template.name = vesselNaming.vesselName;
+            template.Name = vesselNaming.vesselName;
         }
 
-        AddVesselValues(craftNode, vesselNode, template.name, vesselType, highestStage + 1);
+        AddVesselValues(craftNode, template.node, template.Name, vesselType, highestStage + 1);
 
-        template.CalculateBounds();
+        template.LandedBounds = VesselBounds.FromParts(templateParts, includeLaunchClamps: true);
+        template.SpaceBounds = VesselBounds.FromParts(templateParts, includeLaunchClamps: false);
 
         if (craftNode.HasValue("size"))
             ApplyCraftSize(template, KSPUtil.ParseVector3(craftNode.GetValue("size")), root.rotation);
 
         stopwatch.Stop();
-        Logger.Log($"Parsed {template.partCount} parts of {template.DisplayName} in {stopwatch.Elapsed.TotalMilliseconds:N1} ms, {template.spaceBounds.size} m across.");
+        Logger.Log($"Parsed {templateParts.Count} parts of {template.DisplayName} in {stopwatch.Elapsed.TotalMilliseconds:N1} ms, {template.SpaceBounds.size} m across.");
 
         return template;
     }
@@ -418,7 +406,7 @@ public class CraftParser
             return;
 
         // Our bounds, seen along the editor's axes.
-        Bounds editor = Transform(template.spaceBounds, rootInEditor);
+        Bounds editor = Transform(template.SpaceBounds, rootInEditor);
         Vector3 size = Vector3.Max(editor.size, craftSize);
         if (size == editor.size)
             return;
@@ -427,8 +415,10 @@ public class CraftParser
 
         // Back into the vessel's frame.
         Bounds grown = Transform(editor, Quaternion.Inverse(rootInEditor));
-        template.spaceBounds = grown;
-        template.landedBounds.Encapsulate(grown);
+        Bounds landed = template.LandedBounds;
+        landed.Encapsulate(grown);
+        template.SpaceBounds = grown;
+        template.LandedBounds = landed;
     }
 
     private static Bounds Transform(Bounds bounds, Quaternion rotation)
@@ -513,4 +503,15 @@ public class CraftParser
     }
 
     #endregion
+}
+
+public class MissingPartsException : SpawnException
+{
+    public readonly List<string> missingParts;
+
+    public MissingPartsException(string message, IEnumerable<string> missingParts) : base(Localizer.Format("#autoLOC_6002424"), message) =>
+        this.missingParts = missingParts.ToList();
+
+    public string ShortMessage =>
+        $"{missingParts.Count} missing part{(missingParts.Count == 1 ? "" : "s")}: {string.Join(", ", missingParts.Take(3))}{(missingParts.Count > 3 ? "..." : "")}";
 }

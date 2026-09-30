@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- LazySpawner's window and placement tool, built on the backend the same way any other mod would be. -->
+	<PropertyGroup>
+		<AssemblyName>LazySpawnerUI</AssemblyName>
+		<KSPBT_GenerateVersionFile>false</KSPBT_GenerateVersionFile>
+	</PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\LazySpawner\LazySpawner.csproj" KSPAssemblyName="LazySpawner" Private="false" />
+		<Compile Include="..\LazySpawner\Logger.cs;..\LazySpawner\Meta.cs" />
+	</ItemGroup>
+	<!-- Debug builds can be hot reloaded in game with HotReloadKSP. The backend can't: this would keep using the old one. -->
+	<ItemGroup Condition="'$(Configuration)' == 'Debug'">
+		<AssemblyMetadata Include="HotReload" Value="true" />
+	</ItemGroup>
+</Project>

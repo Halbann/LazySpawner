@@ -29,28 +29,24 @@ public class Ghost
 
     public Ghost(VesselTemplate template)
     {
-        gameObject = new GameObject($"LazySpawner Ghost ({template.name})");
+        gameObject = new GameObject($"LazySpawner Ghost ({template.Name})");
 
         shader ??= Shader.Find("KSP/Alpha/Translucent") ?? Shader.Find("Legacy Shaders/Transparent/Diffuse");
 
         Dictionary<Material, Material> materialCache = new Dictionary<Material, Material>();
-        ConfigNode[] partNodes = template.node.GetNodes("PART");
-
-        for (int i = 0; i < partNodes.Length; i++)
+        foreach (TemplatePart templatePart in template.Parts)
         {
-            ConfigNode partNode = partNodes[i];
-            AvailablePart availablePart = PartLoader.getPartInfoByName(partNode.GetValue("name"));
-            Part prefab = availablePart?.partPrefab;
+            Part prefab = templatePart.info?.partPrefab;
             Transform model = prefab != null ? prefab.transform.Find("model") : null;
             if (model == null)
                 continue;
 
-            GameObject part = new GameObject(availablePart.name);
+            GameObject part = new GameObject(templatePart.info.name);
             if (prefab.HasModuleImplementing<LaunchClamp>())
                 launchClamps.Add(part);
             part.transform.SetParent(gameObject.transform, false);
-            part.transform.localPosition = i < template.partPositions.Count ? template.partPositions[i] : Vector3.zero;
-            part.transform.localRotation = KSPUtil.ParseQuaternion(partNode.GetValue("rotation"));
+            part.transform.localPosition = templatePart.position;
+            part.transform.localRotation = templatePart.rotation;
 
             GameObject modelCopy = Object.Instantiate(model.gameObject, part.transform, false);
             modelCopy.transform.localPosition = model.localPosition;
@@ -58,7 +54,7 @@ public class Ghost
             modelCopy.transform.localScale = model.localScale;
             modelCopy.SetActive(true);
 
-            ApplyVariant(prefab, modelCopy.transform, partNode.GetValue("moduleVariantName"));
+            ApplyVariant(prefab, modelCopy.transform, templatePart.variant);
             Strip(modelCopy, materialCache);
         }
 

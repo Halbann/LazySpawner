@@ -1,0 +1,9 @@
+<Project>
+	<!-- Copy the mod folder to the game, after the version file is generated so the game gets the fresh one. -->
+	<Target Name="CopyToGame" AfterTargets="Build;KSPBT_GenerateVersionFile">
+		<ItemGroup>
+			<ModFiles Include="$(KSPBT_ModRoot)**\*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(ModFiles)" DestinationFiles="@(ModFiles->'$(KSPBT_GameRoot)/GameData/LazySpawner/%(RecursiveDir)%(Filename)%(Extension)')" />
+	</Target>
+</Project>

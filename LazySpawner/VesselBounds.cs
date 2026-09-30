@@ -3,8 +3,7 @@
 //
 // Bounds are boxes in the vessel's own frame, the root part's transform. Colliders are
 // measured by their eight corners, because a rotated box's size vector isn't its extent.
-// Vessel templates haven't been built yet, so their bounds come from the part prefabs'
-// colliders placed where the parts will be.
+// Parts that haven't been built yet are measured by their prefabs' colliders, placed where the parts will be.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -13,13 +12,11 @@ namespace LazySpawner;
 
 public static class VesselBounds
 {
-    #region Measuring
-
     // Loaded vessels are measured as they are. Unloaded ones are measured like templates.
     public static Bounds FromVessel(Vessel vessel, bool includeLaunchClamps = true)
     {
         if (!vessel.loaded)
-            return FromSnapshots(vessel.protoVessel.protoPartSnapshots, includeLaunchClamps);
+            return FromParts(TemplatePart.From(vessel.protoVessel), includeLaunchClamps);
 
         Matrix4x4 toVessel = vessel.transform.worldToLocalMatrix;
         Bounds? bounds = null;
@@ -47,21 +44,13 @@ public static class VesselBounds
         return bounds ?? new Bounds();
     }
 
-    public static Bounds FromTemplate(VesselTemplate template, bool includeLaunchClamps = true)
+    internal static Bounds FromParts(IEnumerable<TemplatePart> parts, bool includeLaunchClamps)
     {
-        ConfigNode[] parts = template.node.GetNodes("PART");
         Bounds? bounds = null;
 
-        for (int i = 0; i < parts.Length; i++)
-        {
-            string name = parts[i].GetValue("name");
-            if (!includeLaunchClamps && Spawner.IsLaunchClamp(name))
-                continue;
-
-            Vector3 position = i < template.partPositions.Count ? template.partPositions[i] : Vector3.zero;
-            Quaternion rotation = KSPUtil.ParseQuaternion(parts[i].GetValue("rotation"));
-            AddPrefab(ref bounds, name, parts[i].GetValue("moduleVariantName"), position, rotation);
-        }
+        foreach (TemplatePart part in parts)
+            if (includeLaunchClamps || !IsLaunchClamp(part.info?.partPrefab))
+                AddPrefab(ref bounds, part);
 
         return bounds ?? new Bounds();
     }
@@ -69,29 +58,18 @@ public static class VesselBounds
     private static bool IsLaunchClamp(Part part) =>
         part != null && part.HasModuleImplementing<LaunchClamp>();
 
-    private static Bounds FromSnapshots(List<ProtoPartSnapshot> snapshots, bool includeLaunchClamps)
-    {
-        Bounds? bounds = null;
-
-        foreach (ProtoPartSnapshot snapshot in snapshots)
-            if (includeLaunchClamps || !Spawner.IsLaunchClamp(snapshot.partName))
-                AddPrefab(ref bounds, snapshot.partName, snapshot.moduleVariantName, snapshot.position, snapshot.rotation);
-
-        return bounds ?? new Bounds();
-    }
-
     // A part that hasn't been built yet: its prefab's colliders, moved to where the part will be.
-    private static void AddPrefab(ref Bounds? bounds, string partName, string variantName, Vector3 position, Quaternion rotation)
+    private static void AddPrefab(ref Bounds? bounds, TemplatePart part)
     {
-        Encapsulate(ref bounds, position);
+        Encapsulate(ref bounds, part.position);
 
-        Part prefab = PartLoader.getPartInfoByName(partName)?.partPrefab;
+        Part prefab = part.info?.partPrefab;
         if (prefab == null)
             return;
 
-        Matrix4x4 partToVessel = Matrix4x4.TRS(position, rotation, Vector3.one);
+        Matrix4x4 partToVessel = Matrix4x4.TRS(part.position, part.rotation, Vector3.one);
         Matrix4x4 worldToPrefab = prefab.transform.worldToLocalMatrix;
-        HashSet<string> hidden = HiddenByVariant(prefab, variantName);
+        HashSet<string> hidden = HiddenByVariant(prefab, part.variant);
 
         foreach (Collider collider in prefab.GetComponentsInChildren<Collider>(true))
         {
@@ -174,91 +152,4 @@ public static class VesselBounds
             bounds = b;
         }
     }
-
-    #endregion
-
-    #region Cache
-
-    private struct CacheEntry
-    {
-        public int partCount;
-        public float time;
-        public Bounds bounds;
-    }
-
-    private static readonly Dictionary<uint, CacheEntry> cache = new Dictionary<uint, CacheEntry>();
-
-    // Vessels don't change shape often, so measuring once a few seconds is plenty.
-    public static Bounds Get(Vessel vessel)
-    {
-        int partCount = vessel.loaded ? vessel.parts.Count : vessel.protoVessel.protoPartSnapshots.Count;
-
-        if (cache.TryGetValue(vessel.persistentId, out CacheEntry entry) && entry.partCount == partCount && Time.time - entry.time < 5f)
-            return entry.bounds;
-
-        entry = new CacheEntry { partCount = partCount, time = Time.time, bounds = FromVessel(vessel) };
-        cache[vessel.persistentId] = entry;
-        return entry.bounds;
-    }
-
-    #endregion
-
-    #region Overlap
-
-    // A box in the world: vessel bounds placed at a vessel's position and rotation.
-    public struct Box
-    {
-        public Vector3 centre;
-        public Vector3 extents;
-        public Vector3 x, y, z;
-
-        public Box(Bounds bounds, Vector3 position, Quaternion rotation)
-        {
-            centre = position + rotation * bounds.center;
-            extents = bounds.extents;
-            x = rotation * Vector3.right;
-            y = rotation * Vector3.up;
-            z = rotation * Vector3.forward;
-        }
-
-        public static Box Of(Vessel vessel) =>
-            new Box(Get(vessel), vessel.transform.position, vessel.transform.rotation);
-
-        private Vector3 Axis(int i) => i == 0 ? x : i == 1 ? y : z;
-
-        // Half the box's length along a direction.
-        public float Extent(Vector3 axis) => Radius(axis.normalized);
-
-        private float Radius(Vector3 axis) =>
-            extents.x * Mathf.Abs(Vector3.Dot(x, axis)) + extents.y * Mathf.Abs(Vector3.Dot(y, axis)) + extents.z * Mathf.Abs(Vector3.Dot(z, axis));
-
-        // The widest gap between the boxes along any separating axis, negative if they overlap.
-        // Zero or more means they don't touch. It's never more than the true distance between them.
-        public float Gap(Box other)
-        {
-            Vector3 offset = other.centre - centre;
-            float gap = float.MinValue;
-
-            // Each box's three faces, and the cross products of their edges: the separating axis theorem.
-            for (int n = 0; n < 15; n++)
-            {
-                Vector3 axis = n < 3 ? Axis(n) : n < 6 ? other.Axis(n - 3) : Vector3.Cross(Axis((n - 6) / 3), other.Axis((n - 6) % 3));
-
-                float length = axis.magnitude;
-                if (length < 1e-4f)
-                    continue;
-
-                axis /= length;
-                float separation = Mathf.Abs(Vector3.Dot(offset, axis)) - Radius(axis) - other.Radius(axis);
-                gap = Mathf.Max(gap, separation);
-            }
-
-            return gap;
-        }
-
-        // Radius of a sphere around the centre enclosing the box.
-        public float Radius() => extents.magnitude;
-    }
-
-    #endregion
 }

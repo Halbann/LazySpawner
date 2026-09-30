@@ -280,7 +280,7 @@ public class PlacementTool : MonoBehaviour
         CelestialBody body = active.mainBody;
         body.GetLatLonAlt(hit.point, out double latitude, out double longitude, out _);
 
-        placed = IMGUI.LandedRow(template, body, latitude, longitude, placeHeading, IMGUI.count.Valid ? IMGUI.count.value : 1, false);
+        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, IMGUI.count.Valid ? IMGUI.count.value : 1, false);
 
         // Steep ground tips things over, and overlapping vessels explode.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
@@ -289,7 +289,7 @@ public class PlacementTool : MonoBehaviour
         bool clear = gap >= 0.5f;
 
         placeValid = slope < 30 && clear;
-        placeInfo = $"{Localizer.Format(template.name)} · heading {placeHeading:F0}°" +
+        placeInfo = $"{template.DisplayName} · heading {placeHeading:F0}°" +
             (nearest != null && clear ? $" · {FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : "") +
             (slope >= 30 ? $"\n<color=#ff7766>Too steep ({slope:F0}°)</color>" : "") +
             (!clear ? $"\n<color=#ff7766>Touching {nearest.GetDisplayName()}</color>" : "");
@@ -318,13 +318,13 @@ public class PlacementTool : MonoBehaviour
         placed = new List<SpawnSituation>();
         int number = IMGUI.count.Valid ? IMGUI.count.value : 1;
         for (int i = 0; i < number; i++)
-            placed.Add(SpawnSituation.Orbiting(i == 0 ? orbit : IMGUI.Cluster(orbit, template, i, IMGUI.randomRotation), IMGUI.randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
+            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, IMGUI.randomRotation)));
 
         // Measured between the vessels' boxes, not their centres.
         float gap = Clearance(template, placed, out Vessel nearest);
 
         placeValid = gap >= 1f;
-        placeInfo = $"{Localizer.Format(template.name)} · " +
+        placeInfo = $"{template.DisplayName} · " +
             (nearest == null ? "" : placeValid ? $"{FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : $"<color=#ff7766>Touching {nearest.GetDisplayName()}</color>");
     }
 
@@ -373,13 +373,13 @@ public class PlacementTool : MonoBehaviour
             return;
         }
 
-        placed = IMGUI.LandedRow(template, hitBody, latitude, longitude, placeHeading, IMGUI.count.Valid ? IMGUI.count.value : 1, false);
+        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, IMGUI.count.Valid ? IMGUI.count.value : 1, false);
         placeValid = true;
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
         double terrain = hitBody.TerrainAltitude(latitude, longitude, true);
         string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · on the water" : "";
-        placeInfo = $"{Localizer.Format(template.name)} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
+        placeInfo = $"{template.DisplayName} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
             $"{latitude:F3}°, {longitude:F3}° · heading {placeHeading:F0}°";
     }
 
@@ -431,12 +431,12 @@ public class PlacementTool : MonoBehaviour
         {
             Orbit spread = i == 0 ? orbit : new Orbit(orbit.inclination, orbit.eccentricity, orbit.semiMajorAxis, orbit.LAN, orbit.argumentOfPeriapsis,
                 orbit.meanAnomalyAtEpoch + 2 * Math.PI * i / number, orbit.epoch, body);
-            placed.Add(SpawnSituation.Orbiting(spread, IMGUI.randomRotation ? OrbitRotation.Random : OrbitRotation.Prograde));
+            placed.Add(SpawnSituation.Orbiting(spread));
         }
 
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
-        placeInfo = $"{Localizer.Format(template.name)} · {name} · altitude {FormatDistance((float)altitude)} · inclination {orbit.inclination:F1}°" +
+        placeInfo = $"{template.DisplayName} · {name} · altitude {FormatDistance((float)altitude)} · inclination {orbit.inclination:F1}°" +
             (inAtmosphere ? "\n<color=#ff7766>Inside the atmosphere</color>" : "");
     }
 
@@ -476,26 +476,14 @@ public class PlacementTool : MonoBehaviour
     {
         nearest = null;
         float smallest = float.MaxValue;
-        double UT = Planetarium.GetUniversalTime();
 
         foreach (SpawnSituation situation in situations)
         {
-            VesselBounds.Box box;
-
-            if (situation.landed)
-            {
-                Spawner.LandedPose pose = Spawner.GetLandedPose(template, situation, template.ReferenceRotation);
-                box = new VesselBounds.Box(template.landedBounds, pose.position, pose.rotation);
-            }
-            else
-            {
-                Quaternion rotation = situation.orbitRotation == OrbitRotation.Fixed ? situation.worldRotation : Placement.Prograde(situation.orbit, UT, template.ReferenceRotation);
-                box = new VesselBounds.Box(template.spaceBounds, situation.orbit.getPositionAtUT(UT), rotation);
-            }
+            Box box = Box.Of(template, situation);
 
             foreach (Vessel vessel in FlightGlobals.VesselsLoaded)
             {
-                float gap = box.Gap(VesselBounds.Box.Of(vessel));
+                float gap = box.Gap(Box.Of(vessel));
                 if (gap < smallest)
                 {
                     smallest = gap;
@@ -537,28 +525,11 @@ public class PlacementTool : MonoBehaviour
             if (ghostsUsed >= maxGhosts)
                 return;
 
-            Vector3 position;
-            Quaternion rotation;
+            if (situation.landed && situation.body != FlightGlobals.currentMainBody)
+                continue;
 
-            if (situation.landed)
-            {
-                if (situation.body != FlightGlobals.currentMainBody)
-                    continue;
-
-                Spawner.LandedPose pose = Spawner.GetLandedPose(template, situation, template.ReferenceRotation);
-                position = pose.position;
-                rotation = pose.rotation;
-            }
-            else
-            {
-                double UT = Planetarium.GetUniversalTime();
-                position = situation.orbit.getPositionAtUT(UT);
-                rotation = situation.orbitRotation == OrbitRotation.Prograde
-                    ? Placement.Prograde(situation.orbit, UT, template.ReferenceRotation)
-                    : Quaternion.identity;
-            }
-
-            if ((position - camera).magnitude > ghostRange)
+            (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation);
+            if (((Vector3)position - camera).magnitude > ghostRange)
                 continue;
 
             if (ghostsUsed >= ghosts.Count)
