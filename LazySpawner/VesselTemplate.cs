@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using UnityEngine;
+using static LazySpawner.Localisation;
 
 namespace LazySpawner;
 
@@ -92,7 +93,7 @@ public class VesselTemplate
             throw new ArgumentNullException(nameof(vessel));
 
         if (vessel.isEVA)
-            throw new SpawnException("Kerbals on EVA can't be cloned.");
+            throw new SpawnException(Loc("Error_CloneEVA"));
 
         // Exactly what the game does to a vessel when saving.
         ProtoVessel proto = vessel.BackupVessel();
@@ -144,7 +145,7 @@ public struct TemplatePart
 
 public class SpawnException : Exception
 {
-    public string title = "Spawning Failed";
+    public string title = Loc("Error_Title");
 
     public SpawnException(string message) : base(message) { }
     public SpawnException(string title, string message) : base(message) => this.title = title;

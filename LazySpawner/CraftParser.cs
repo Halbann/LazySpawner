@@ -1,5 +1,6 @@
 using KSP.Localization;
 using System;
+using static LazySpawner.Localisation;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -44,20 +45,23 @@ internal class CraftParser
     public static VesselTemplate Parse(string craftPath)
     {
         if (string.IsNullOrEmpty(craftPath) || !File.Exists(craftPath))
-            throw new SpawnException("Craft Not Found", $"There is no craft file at:\n{craftPath}");
+            throw new SpawnException(Loc("Error_CraftNotFound_Title"), Loc("Error_CraftNotFound", craftPath));
 
         ConfigNode craftNode = ConfigNode.Load(craftPath);
         if (craftNode == null)
-            throw new SpawnException("Craft Loading Error", $"The craft file could not be read:\n{craftPath}");
+            throw LoadingError("Error_CraftUnreadable", craftPath);
 
         return new CraftParser().Parse(craftNode);
     }
+
+    private static SpawnException LoadingError(string key, params object[] args) =>
+        new SpawnException(Loc("Error_CraftLoading_Title"), Loc(key, args));
 
     private VesselTemplate Parse(ConfigNode craftNode)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        string shipName = craftNode.GetValue("ship") ?? "Unnamed Vessel";
+        string shipName = craftNode.GetValue("ship") ?? Loc("Error_UnnamedVessel");
         string missionFlag = craftNode.GetValue("missionFlag");
         if (string.IsNullOrEmpty(missionFlag))
             missionFlag = HighLogic.CurrentGame?.flagURL ?? "";
@@ -76,7 +80,7 @@ internal class CraftParser
         SortParts(root);
 
         if (sortedParts.Count != parts.Count)
-            throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has parts that aren't attached to the rest of the craft.");
+            throw LoadingError("Error_Detached", shipName);
 
         List<TemplatePart> templateParts = new List<TemplatePart>();
         VesselTemplate template = new VesselTemplate
@@ -169,7 +173,7 @@ internal class CraftParser
                 continue;
 
             if (!uint.TryParse(craftID, out uint cid) || partsByCraftID.ContainsKey(cid))
-                throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has an invalid part ID: {partNameAndID}");
+                throw LoadingError("Error_BadPartID", shipName, partNameAndID);
 
             PartInfo info = new PartInfo
             {
@@ -197,7 +201,7 @@ internal class CraftParser
         }
 
         if (parts.Count == 0)
-            throw new SpawnException("Craft Loading Error", $"{Localizer.Format(shipName)} has no parts.");
+            throw LoadingError("Error_NoParts", shipName);
     }
 
     private void ReadPartValues(PartInfo info)
@@ -237,7 +241,7 @@ internal class CraftParser
             foreach (uint childID in info.children)
             {
                 if (!partsByCraftID.TryGetValue(childID, out PartInfo child))
-                    throw new SpawnException("Craft Loading Error", $"Part {info.partName}_{info.craftID} links to a part that doesn't exist ({childID}). The craft file may be corrupted.");
+                    throw LoadingError("Error_BrokenLink", $"{info.partName}_{info.craftID}", childID);
 
                 child.parent = info;
             }
@@ -513,5 +517,5 @@ public class MissingPartsException : SpawnException
         this.missingParts = missingParts.ToList();
 
     public string ShortMessage =>
-        $"{missingParts.Count} missing part{(missingParts.Count == 1 ? "" : "s")}: {string.Join(", ", missingParts.Take(3))}{(missingParts.Count > 3 ? "..." : "")}";
+        Loc("MissingParts", missingParts.Count, string.Join(", ", missingParts.Take(3)) + (missingParts.Count > 3 ? "…" : ""));
 }

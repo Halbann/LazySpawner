@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using UnityEngine;
+using static LazySpawner.Localisation;
 
 namespace LazySpawner;
 
@@ -44,11 +45,11 @@ public static class Spawner
             throw new ArgumentNullException(nameof(template));
 
         if (HighLogic.CurrentGame?.flightState == null || FlightGlobals.fetch == null)
-            throw new SpawnException("Vessels can only be spawned in flight or the tracking station.");
+            throw new SpawnException(Loc("Error_WrongScene"));
 
         ProtoCrewMember busy = crew.kerbals?.Find(k => k.rosterStatus != ProtoCrewMember.RosterStatus.Available);
         if (busy != null)
-            throw new SpawnException($"{busy.name} isn't available.");
+            throw new SpawnException(Loc("Error_KerbalBusy", busy.displayName));
 
         Stopwatch timer = Stopwatch.StartNew();
 

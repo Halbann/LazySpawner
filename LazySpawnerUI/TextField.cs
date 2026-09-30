@@ -1,6 +1,7 @@
+using KSP.Localization;
 using System;
 using System.Globalization;
-using UnityEngine;
+using static LazySpawner.Localisation;
 
 namespace LazySpawner;
 
@@ -12,11 +13,11 @@ public interface ITextField
     string Tooltip { get; }
 }
 
-// Text typed into a box, parsed into a value, and persisted as a setting.
+// Text typed into a box, parsed into a value, and persisted as a setting. Its title is Field_<key> in the
+// localisation, and its tooltip Field_<key>_Tooltip, if there is one.
 public class TextField<T> : ITextField, ISetting
 {
-    public string title;
-    public string tooltip;
+    private readonly string key;
     public T value;
 
     public Func<string, T> parser;
@@ -36,13 +37,12 @@ public class TextField<T> : ITextField, ISetting
     }
 
     public bool Valid { get; private set; } = true;
-    public string Title => title;
-    public string Tooltip => tooltip;
+    public string Title => Loc($"Field_{key}");
+    public string Tooltip => Localizer.TryGetStringByTag($"#LOC_{Meta.name}_Field_{key}_Tooltip", out string tooltip) ? tooltip : null;
 
-    public TextField(string title, string text, Func<string, T> parser, Func<T, bool> validator = null, string tooltip = null)
+    public TextField(string key, string text, Func<string, T> parser, Func<T, bool> validator = null)
     {
-        this.title = title;
-        this.tooltip = tooltip;
+        this.key = key;
         this.parser = parser;
         this.validator = validator;
         defaultText = text;

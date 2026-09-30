@@ -6,7 +6,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\LazySpawner\LazySpawner.csproj" KSPAssemblyName="LazySpawner" Private="false" />
-		<Compile Include="..\LazySpawner\Logger.cs;..\LazySpawner\Meta.cs" />
+		<Compile Include="..\LazySpawner\Logger.cs;..\LazySpawner\Meta.cs;..\LazySpawner\Localisation.cs" />
 	</ItemGroup>
 	<!-- Debug builds can be hot reloaded in game with HotReloadKSP. The backend can't: this would keep using the old one. -->
 	<ItemGroup Condition="'$(Configuration)' == 'Debug'">

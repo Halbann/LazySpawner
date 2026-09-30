@@ -5,13 +5,14 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using static LazySpawner.Localisation;
 
 namespace LazySpawner;
 
 [KSPAddon(KSPAddon.Startup.MainMenu, true)]
 internal class SpawnScreenRegistration : MonoBehaviour
 {
-    protected void Start() => DebugUI.AddScreen<SpawnScreen>("Cheats", Controller.ScreenName);
+    protected void Start() => DebugUI.AddScreen<SpawnScreen>("Cheats", Controller.ScreenName, Loc("ScreenName"));
 }
 
 // The Spawn Vessels screen, under Cheats in the debug console (Alt+F12). It's built from the stock
@@ -182,12 +183,12 @@ public class SpawnScreen : MonoBehaviour
 
     private void BuildMain(Transform page)
     {
-        Show(DebugUI.Paragraph(page, "Vessels can be spawned in flight and in the tracking station."), () => C == null);
+        Show(DebugUI.Paragraph(page, Loc("NotHere")), () => C == null);
         Transform content = Panel(page, () => C != null);
         const float half = (DebugUI.ControlWidth - 4) / 2;
 
         // Craft: its picture where the labels go, and what it is where the controls go.
-        DebugUI.Heading(content, "Craft");
+        DebugUI.Heading(content, Loc("Heading_Craft"));
         Transform card = DebugUI.Row(content);
         card.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.UpperLeft;
         RawImage thumbnail = Thumbnail(card, 64);
@@ -202,25 +203,25 @@ public class SpawnScreen : MonoBehaviour
         aboutLayout.flexibleWidth = 1;
         aboutLayout.minWidth = DebugUI.ControlWidth;
         Text(DebugUI.Paragraph(about), CraftDescription);
-        DebugUI.Button(DebugUI.Row(about), "Change…", () => ShowPicker(true), DebugUI.ControlWidth);
+        DebugUI.Button(DebugUI.Row(about), Loc("Craft_Change"), () => ShowPicker(true), DebugUI.ControlWidth);
         Field(content, Controller.count);
         DebugUI.Spacer(content, 10);
 
         // Where.
-        DebugUI.Heading(content, "Where");
-        Button[] modes = Tabs(content, Controller.situationMode, "Place", "Nearby", "Orbit", "Launch Site");
+        DebugUI.Heading(content, Loc("Heading_Where"));
+        Button[] modes = Tabs(content, Controller.situationMode, Loc("Mode_Place"), Loc("Mode_Nearby"), Loc("Mode_Orbit"), Loc("Mode_LaunchSite"));
         Enable(modes[0], () => Controller.CanPlace);
-        DebugUI.Tooltip(modes[0], "Pick a location or orbit in map view or vessel view.");
+        DebugUI.Tooltip(modes[0], Loc("Mode_Place_Tooltip"));
         Enable(modes[1], () => Controller.InFlight);
-        DebugUI.Tooltip(modes[1], "Scatter them at random around the active vessel.");
+        DebugUI.Tooltip(modes[1], Loc("Mode_Nearby_Tooltip"));
         DebugUI.Spacer(content, 2);
 
         Transform place = Panel(content, () => Controller.situationMode == Controller.SituationMode.Place);
-        Toggle(place, "Random Rotation", Controller.randomRotation, "A random heading on the ground, and any way up in space.");
+        Toggle(place, Loc("RandomRotation"), Controller.randomRotation, Loc("RandomRotation_Place_Tooltip"));
 
         Transform nearby = Panel(content, () => Controller.situationMode == Controller.SituationMode.Nearby);
         Field(nearby, Controller.range);
-        Toggle(nearby, "Random Rotation", Controller.randomRotation);
+        Toggle(nearby, Loc("RandomRotation"), Controller.randomRotation);
 
         Transform orbit = Panel(content, () => Controller.situationMode == Controller.SituationMode.Orbit);
         BodyPicker(orbit);
@@ -231,20 +232,20 @@ public class SpawnScreen : MonoBehaviour
         foreach (ITextField field in new ITextField[] { Controller.sma, Controller.eccentricity, Controller.inclination, Controller.lan, Controller.argPe, Controller.meanAnomaly })
             Field(advanced, field);
 
-        Transform match = Line(orbit, "Match Orbit Of");
-        Enable(DebugUI.Button(match, "Vessel", () => Controller.SetOrbit(FlightGlobals.ActiveVessel.orbit), half), () => Controller.InFlight);
-        Enable(DebugUI.Button(match, "Target", () => Controller.SetOrbit(FlightGlobals.fetch.VesselTarget.GetOrbit()), half), () => Controller.InFlight && FlightGlobals.fetch.VesselTarget?.GetOrbit() != null);
-        Toggle(orbit, "Advanced", Controller.advancedOrbit, "Set every orbital element.");
-        Toggle(orbit, "Spread Evenly", Controller.spreadAlongOrbit, "Space them evenly around the orbit, like a constellation, instead of flying in formation.", () => Controller.count.value > 1);
-        Toggle(orbit, "Random Rotation", Controller.randomRotation);
+        Transform match = Line(orbit, Loc("Orbit_Match"));
+        Enable(DebugUI.Button(match, Loc("Orbit_MatchVessel"), () => Controller.SetOrbit(FlightGlobals.ActiveVessel.orbit), half), () => Controller.InFlight);
+        Enable(DebugUI.Button(match, Loc("Orbit_MatchTarget"), () => Controller.SetOrbit(FlightGlobals.fetch.VesselTarget.GetOrbit()), half), () => Controller.InFlight && FlightGlobals.fetch.VesselTarget?.GetOrbit() != null);
+        Toggle(orbit, Loc("Orbit_Advanced"), Controller.advancedOrbit, Loc("Orbit_Advanced_Tooltip"));
+        Toggle(orbit, Loc("Orbit_Spread"), Controller.spreadAlongOrbit, Loc("Orbit_Spread_Tooltip"), () => Controller.count.value > 1);
+        Toggle(orbit, Loc("RandomRotation"), Controller.randomRotation);
 
         SitePicker(Panel(content, () => Controller.situationMode == Controller.SituationMode.LaunchSite));
         DebugUI.Spacer(content, 10);
 
         // Crew.
-        DebugUI.Heading(content, "Crew");
-        Tabs(content, Controller.crewMode, "None", "Pilot", "Command", "Fill All");
-        Toggle(content, "Always Hire New Kerbals", Controller.onlyNewKerbals, "Avoids using kerbals from the space centre.", () => Controller.crewMode != CrewMode.None);
+        DebugUI.Heading(content, Loc("Heading_Crew"));
+        Tabs(content, Controller.crewMode, Loc("Crew_None"), Loc("Crew_Pilot"), Loc("Crew_Command"), Loc("Crew_FillAll"));
+        Toggle(content, Loc("Crew_AlwaysHire"), Controller.onlyNewKerbals, Loc("Crew_AlwaysHire_Tooltip"), () => Controller.crewMode != CrewMode.None);
         DebugUI.Spacer(content, 10);
 
         // What happens, set apart as a list, and the buttons that make it happen.
@@ -267,19 +268,19 @@ public class SpawnScreen : MonoBehaviour
         buttons.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
         Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => ready && C.spawnRoutine == null);
-        Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => C.spawnRoutine != null ? "Spawning…" : placing() ? "Place…" : "Spawn");
-        Behaviour placeTooltip = DebugUI.Tooltip(spawn, "Click where it should go, in the vessel view or the map view.").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
+        Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
+        Behaviour placeTooltip = DebugUI.Tooltip(spawn, Loc("Button_Place_Tooltip")).GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
         refresh.Add(() => placeTooltip.enabled = placing());
         DebugUI.Spacer(content);
 
         // What happened, with what can be done about it alongside.
         Transform result = DebugUI.Row(Show(DebugUI.Box(content), () => C.status != ""), 6);
         Text(DebugUI.Paragraph(result), () => C.statusIsError ? orange + C.status : C.status);
-        Show(DebugUI.Button(result, "Switch To", () => FlightGlobals.SetActiveVessel(LastSpawned()), 80),
+        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => FlightGlobals.SetActiveVessel(LastSpawned()), 80),
             () => HighLogic.LoadedSceneIsFlight && LastSpawned() != null && LastSpawned() != FlightGlobals.ActiveVessel);
-        Button undo = Show(DebugUI.Button(result, "Undo", () => C.Undo(), 80), () => Removable() > 0);
-        DebugUI.Tooltip(undo, "Remove what you just spawned. Kerbals go back to the space centre, and new hires are let go.");
-        Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? "Undo" : $"Undo ({Removable()})");
+        Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
+        DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));
+        Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? Loc("Button_Undo") : Loc("Button_UndoCount", Removable()));
     }
 
     private Vessel LastSpawned()
@@ -302,7 +303,7 @@ public class SpawnScreen : MonoBehaviour
 
     private void BodyPicker(Transform parent)
     {
-        Stepper(parent, "Body", () => Controller.body.Valid ? Controller.body.value.displayName.LocalizeRemoveGender() : Controller.body.Text, step =>
+        Stepper(parent, Controller.body.Title, () => Controller.body.Valid ? Controller.body.value.displayName.LocalizeRemoveGender() : Controller.body.Text, step =>
         {
             List<CelestialBody> bodies = FlightGlobals.Bodies;
             int index = Controller.body.Valid ? bodies.IndexOf(Controller.body.value) : 0;
@@ -313,7 +314,7 @@ public class SpawnScreen : MonoBehaviour
     // Site names are longer than body names.
     private void SitePicker(Transform parent)
     {
-        Stepper(parent, "Site", () => LaunchSites.Named(Controller.launchSite)?.name ?? "None", step =>
+        Stepper(parent, Loc("Site"), () => LaunchSites.Named(Controller.launchSite)?.name ?? Loc("Site_None"), step =>
         {
             List<LaunchSites.Site> sites = LaunchSites.All;
             if (sites.Count > 0)
@@ -340,26 +341,26 @@ public class SpawnScreen : MonoBehaviour
         {
             Vessel original = Controller.CloneSource();
             return original == null
-                ? orange + (HighLogic.LoadedSceneIsFlight ? "There's no active vessel to clone." : "Select a vessel to clone.")
-                : $"<b>{original.GetDisplayName()}</b>\n{grey}A copy of the {(HighLogic.LoadedSceneIsFlight ? "active" : "selected")} vessel · {original.protoVessel?.protoPartSnapshots.Count ?? original.parts.Count} parts";
+                ? orange + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel")
+                : $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_CloneActive" : "Craft_CloneSelected", original.protoVessel?.protoPartSnapshots.Count ?? original.parts.Count);
         }
 
         Craft craft = Controller.SelectedCraft;
-        return craft == null ? orange + "Choose a craft." : Describe(craft);
+        return craft == null ? orange + Loc("Craft_Choose") : Describe(craft);
     }
 
     private static string Describe(Craft craft) =>
         $"<b>{craft.DisplayName}</b>\n" + (craft.MissingParts.Count > 0
-            ? $"{orange}{craft.MissingParts.Count} missing part{(craft.MissingParts.Count == 1 ? "" : "s")}: {string.Join(", ", craft.MissingParts.Take(3))}{(craft.MissingParts.Count > 3 ? "…" : "")}"
-            : $"{grey}{(craft.elsewhere ? "From elsewhere" : craft.facility)} · {craft.PartCount} parts · {Ago(craft.modified)}");
+            ? orange + Loc("MissingParts", craft.MissingParts.Count, string.Join(", ", craft.MissingParts.Take(3)) + (craft.MissingParts.Count > 3 ? "…" : ""))
+            : grey + Loc("Craft_Details", craft.elsewhere ? Loc("Craft_Elsewhere") : craft.facility, craft.PartCount, Ago(craft.modified)));
 
     private static string Ago(DateTime time)
     {
         TimeSpan age = DateTime.Now - time;
-        return age.TotalMinutes < 1 ? "just now"
-            : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago"
-            : age.TotalDays < 1 ? $"{(int)age.TotalHours} h ago"
-            : age.TotalDays < 60 ? $"{(int)age.TotalDays} days ago"
+        return age.TotalMinutes < 1 ? Loc("Ago_JustNow")
+            : age.TotalHours < 1 ? Loc("Ago_Minutes", (int)age.TotalMinutes)
+            : age.TotalDays < 1 ? Loc("Ago_Hours", (int)age.TotalHours)
+            : age.TotalDays < 60 ? Loc("Ago_Days", (int)age.TotalDays)
             : time.ToString("d MMM yyyy");
     }
 
@@ -391,7 +392,7 @@ public class SpawnScreen : MonoBehaviour
         };
 
         foreach (ITextField field in fields.Where(f => !f.Valid))
-            problems.Add($"{field.Title.Split('(')[0].Trim()} isn't right.");
+            problems.Add(Loc("Summary_FieldWrong", field.Title));
 
         if (problems.Count > 0)
             return Warnings(problems);
@@ -418,24 +419,24 @@ public class SpawnScreen : MonoBehaviour
         {
             case Controller.SituationMode.Place:
                 if (!Controller.CanPlace)
-                    problems.Add("There's nothing to place them around.");
+                    problems.Add(Loc("Summary_NothingToPlaceAround"));
                 return null;
 
             case Controller.SituationMode.Nearby:
                 Vessel active = FlightGlobals.ActiveVessel;
-                string around = $"{(number > 1 ? "They'll be scattered" : "It'll appear somewhere")} around {active.GetDisplayName()}";
-                return active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH ? $"{around}, on the ground." : $"{around}, matching its orbit.";
+                bool ground = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH;
+                return Loc(ground ? "Summary_NearbyGround" : "Summary_NearbyOrbit", active.GetDisplayName(), number);
 
             case Controller.SituationMode.LaunchSite:
                 if (LaunchSites.Named(Controller.launchSite) == null)
                 {
-                    problems.Add("There are no launch sites.");
+                    problems.Add(Loc("Summary_NoLaunchSites"));
                     return null;
                 }
 
                 List<SpawnSituation> situations = C.PreviewSituations(template);
                 if (situations != null && PlacementTool.Clearance(template, situations, out Vessel there) < 0.5f)
-                    warnings.Add($"{there.GetDisplayName()} is in the way.");
+                    warnings.Add(Loc("Summary_InTheWay", there.GetDisplayName()));
 
                 return null;
 
@@ -447,29 +448,29 @@ public class SpawnScreen : MonoBehaviour
                 }
                 catch
                 {
-                    problems.Add("That's not an orbit.");
+                    problems.Add(Loc("Summary_NotAnOrbit"));
                     return null;
                 }
 
                 if (orbit.eccentricity < 1 && orbit.semiMajorAxis < 0)
-                    problems.Add("Elliptical orbits need a positive semi-major axis.");
+                    problems.Add(Loc("Summary_EllipticalAxis"));
                 else if (orbit.eccentricity >= 1 && orbit.semiMajorAxis > 0)
-                    problems.Add("Hyperbolic orbits need a negative semi-major axis.");
+                    problems.Add(Loc("Summary_HyperbolicAxis"));
 
                 if (orbit.PeR < body.Radius)
-                    warnings.Add("The orbit goes through the surface.");
+                    warnings.Add(Loc("Summary_ThroughSurface"));
                 else if (body.atmosphere && orbit.PeA < body.atmosphereDepth)
-                    warnings.Add("The orbit dips into the atmosphere.");
+                    warnings.Add(Loc("Summary_InAtmosphere"));
                 if (orbit.eccentricity < 1 && orbit.ApR > body.sphereOfInfluence)
-                    warnings.Add($"The orbit leaves {bodyName}'s sphere of influence.");
+                    warnings.Add(Loc("Summary_LeavesSOI", bodyName));
 
                 // The simple fields say it all. The elements don't make the shape obvious.
                 if (!Controller.advancedOrbit)
                     return null;
 
-                return orbit.eccentricity >= 1 ? $"Escaping {bodyName}, periapsis {Distance(orbit.PeA)}."
-                    : orbit.eccentricity < 0.001 ? $"Circular, {Distance(orbit.PeA)} up."
-                    : $"Periapsis {Distance(orbit.PeA)}, apoapsis {Distance(orbit.ApA)}.";
+                return orbit.eccentricity >= 1 ? Loc("Summary_Escaping", bodyName, Distance(orbit.PeA))
+                    : orbit.eccentricity < 0.001 ? Loc("Summary_Circular", Distance(orbit.PeA))
+                    : Loc("Summary_Elliptical", Distance(orbit.PeA), Distance(orbit.ApA));
         }
     }
 
@@ -488,17 +489,16 @@ public class SpawnScreen : MonoBehaviour
             : seats.Where(p => mode == CrewMode.FillAll || p.HasModuleImplementing<ModuleCommand>()).Sum(p => p.CrewCapacity);
 
         if (each == 0)
-            return "It'll have no crew, because it has no seats.";
+            return Loc("Crew_NoSeats");
 
         // Whether kerbals leave the space centre, and how many join.
         int needed = each * number;
         int available = Controller.onlyNewKerbals ? 0 : HighLogic.CurrentGame.CrewRoster.Kerbals(ProtoCrewMember.KerbalType.Crew, ProtoCrewMember.RosterStatus.Available).Count();
         int hired = Math.Max(0, needed - available);
 
-        string Kerbals(int n) => n == 1 ? "1 kerbal" : $"{n} kerbals";
-        return hired == 0 ? $"{Kerbals(needed)} will be taken from the space centre."
-            : hired == needed ? $"{Kerbals(needed)} will be hired."
-            : $"{Kerbals(needed - hired)} will be taken from the space centre, and {hired} more will be hired.";
+        return hired == 0 ? Loc("Crew_Taken", needed)
+            : hired == needed ? Loc("Crew_Hired", needed)
+            : Loc("Crew_TakenAndHired", needed - hired, hired);
     }
 
     #endregion
@@ -538,11 +538,11 @@ public class SpawnScreen : MonoBehaviour
     {
         Transform top = DebugUI.Row(page);
         search = DebugUI.Field(top, "", _ => { }, -1);
-        search.placeholder.GetComponent<TextMeshProUGUI>().text = "Search, or paste a path to a craft file";
-        DebugUI.Tooltip(DebugUI.Button(top, "Stock…", () => { ShowPicker(false); C.StartCoroutine(C.StockCraftBrowser()); }, 60), "Choose with the stock craft browser instead.");
-        DebugUI.Button(top, "Back", () => ShowPicker(false), 50);
+        search.placeholder.GetComponent<TextMeshProUGUI>().text = Loc("Picker_Search");
+        DebugUI.Tooltip(DebugUI.Button(top, Loc("Picker_Stock"), () => { ShowPicker(false); C.StartCoroutine(C.StockCraftBrowser()); }, 60), Loc("Picker_Stock_Tooltip"));
+        DebugUI.Button(top, Loc("Picker_Back"), () => ShowPicker(false), 50);
 
-        Tabs(page, filter, "All", "VAB", "SPH");
+        Tabs(page, filter, Loc("Picker_All"), "VAB", "SPH");
 
         // Only the rows in view exist. They move and change as the list scrolls, so however many craft
         // there are, the list opens and filters without making hundreds of UI objects.
@@ -577,7 +577,7 @@ public class SpawnScreen : MonoBehaviour
         {
             Vessel original = Controller.CloneSource();
             if (original != null && !original.isEVA && search.text == "")
-                entries.Add(new Entry { text = $"<b>{original.GetDisplayName()}</b>\n{grey}Copy the {(HighLogic.LoadedSceneIsFlight ? "active" : "selected")} vessel", pick = () => Controller.source.Value = Controller.Source.Clone });
+                entries.Add(new Entry { text = $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Picker_CopyActive" : "Picker_CopySelected"), pick = () => Controller.source.Value = Controller.Source.Clone });
 
             string[] words = search.text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (Craft craft in CraftList.All)
@@ -668,7 +668,7 @@ public class SpawnScreen : MonoBehaviour
         row.image.color = missing ? new Color(0.24f, 0.24f, 0.24f) : new Color(0.3f, 0.3f, 0.3f);
         KSP.UI.TooltipTypes.TooltipController_Text tooltip = row.GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
         tooltip.enabled = missing;
-        tooltip.textString = missing ? "Missing parts:\n" + string.Join("\n", entry.craft.MissingParts) : "";
+        tooltip.textString = missing ? Loc("Picker_MissingParts") + "\n" + string.Join("\n", entry.craft.MissingParts) : "";
     }
 
     #endregion

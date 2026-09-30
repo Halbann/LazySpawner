@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using static LazySpawner.Localisation;
 
 namespace LazySpawner;
 
@@ -248,7 +249,7 @@ public class PlacementTool : MonoBehaviour
             if (!active.LandedOrSplashed && active.situation != Vessel.Situations.PRELAUNCH && active.radarAltitude > 2000)
                 return false;
 
-            placeInfo = "Point at the ground.";
+            placeInfo = Loc("Placing_PointAtGround");
             return true;
         }
 
@@ -265,9 +266,9 @@ public class PlacementTool : MonoBehaviour
 
         placeValid = slope < 30 && clear;
         placeInfo = $"{template.DisplayName} · {HeadingText}" +
-            (nearest != null && clear ? $" · {FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : "") +
-            (slope >= 30 ? $"\n<color=#ff7766>Too steep ({slope:F0}°)</color>" : "") +
-            (!clear ? $"\n<color=#ff7766>Touching {nearest.GetDisplayName()}</color>" : "");
+            (nearest != null && clear ? " · " + Loc("Placing_Clear", FormatDistance(gap), nearest.GetDisplayName()) : "") +
+            (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
+            (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
         return true;
     }
 
@@ -307,7 +308,7 @@ public class PlacementTool : MonoBehaviour
 
         placeValid = gap >= 1f;
         placeInfo = $"{template.DisplayName} · " +
-            (nearest == null ? "" : placeValid ? $"{FormatDistance(gap)} clear of {nearest.GetDisplayName()}" : $"<color=#ff7766>Touching {nearest.GetDisplayName()}</color>");
+            (nearest == null ? "" : placeValid ? Loc("Placing_Clear", FormatDistance(gap), nearest.GetDisplayName()) : $"{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
         return Kind.Space;
     }
 
@@ -350,7 +351,7 @@ public class PlacementTool : MonoBehaviour
 
         if (hitBody.pqsController == null)
         {
-            placeInfo = $"{name} has no surface.";
+            placeInfo = Loc("Placing_NoSurface", name);
             return true;
         }
 
@@ -359,7 +360,7 @@ public class PlacementTool : MonoBehaviour
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
         double terrain = hitBody.TerrainAltitude(latitude, longitude, true);
-        string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · on the water" : "";
+        string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · " + Loc("Placing_OnWater") : "";
         placeInfo = $"{template.DisplayName} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
             $"{latitude:F3}°, {longitude:F3}° · {HeadingText}";
         return true;
@@ -388,13 +389,13 @@ public class PlacementTool : MonoBehaviour
 
         if (radius <= body.Radius)
         {
-            placeInfo = $"Point further out from {name}.";
+            placeInfo = Loc("Placing_FurtherOut", name);
             return Kind.MapOrbit;
         }
 
         if (radius >= body.sphereOfInfluence)
         {
-            placeInfo = $"That's outside {name}'s sphere of influence.";
+            placeInfo = Loc("Placing_OutsideSOI", name);
             return Kind.MapOrbit;
         }
 
@@ -415,8 +416,8 @@ public class PlacementTool : MonoBehaviour
 
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
-        placeInfo = $"{template.DisplayName} · {name} · altitude {FormatDistance((float)altitude)} · inclination {orbit.inclination:F1}°" +
-            (inAtmosphere ? "\n<color=#ff7766>Inside the atmosphere</color>" : "");
+        placeInfo = $"{template.DisplayName} · {name} · {Loc("Placing_Altitude", FormatDistance((float)altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
+            (inAtmosphere ? $"\n{red}{Loc("Placing_InAtmosphere")}</color>" : "");
         return Kind.MapOrbit;
     }
 
@@ -476,7 +477,9 @@ public class PlacementTool : MonoBehaviour
     }
 
     // Random headings are picked on spawning, so the ghost doesn't spin about.
-    private string HeadingText => Controller.randomRotation ? "random heading" : $"heading {placeHeading:F0}°";
+    private string HeadingText => Controller.randomRotation ? Loc("Placing_RandomHeading") : Loc("Placing_Heading", placeHeading.ToString("F0"));
+
+    private const string red = "<color=#ff7766>";
 
     private static bool MouseOverUI() =>
         EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
@@ -642,12 +645,12 @@ public class PlacementTool : MonoBehaviour
 
         string roll = GameSettings.Editor_rollLeft.name + "/" + GameSettings.Editor_rollRight.name;
         string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(k => k.name));
-        string fine = $"{GameSettings.Editor_fineTweak.name} for 5°";
-        string controls = "Left-click to spawn · " + (kind == Kind.MapOrbit ? $"Turn the camera to tilt the orbit · {roll} to reverse · "
-            : Controller.randomRotation ? ""
-            : kind == Kind.Space ? $"{all} to rotate, {fine}, {GameSettings.Editor_resetRotation.name} to reset · "
-            : $"{roll} to turn, {fine} · ")
-            + "Ctrl-click to keep placing · Right-click to stop";
+        string fine = GameSettings.Editor_fineTweak.name;
+        string turning = kind == Kind.MapOrbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
+            : Controller.randomRotation ? null
+            : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, GameSettings.Editor_resetRotation.name)
+            : Loc("Placing_Turn", roll, fine);
+        string controls = string.Join(" · ", new[] { Loc("Placing_Spawn"), turning, Loc("Placing_KeepPlacing"), Loc("Placing_Stop") }.Where(s => s != null));
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);

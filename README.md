@@ -46,6 +46,7 @@ The editor's rotation keys turn it the same way they turn parts: 90° a press, o
 - Launch clamps only come along when spawning on the ground.
 - Kerbals don't get put in external command seats.
 - It's a cheat. Nothing costs funds, and nothing checks what you've unlocked.
+- It's in English so far. To translate it, copy `Localization/en-us.cfg`, rename it and its `en-us` node to your language (`de-de`, `ja` and so on), and translate the text after each `=`.
 
 Requires KSP 1.12. No other dependencies.
 

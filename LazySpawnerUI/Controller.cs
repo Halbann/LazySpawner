@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using UnityEngine;
+using static LazySpawner.Localisation;
 using Random = UnityEngine.Random;
 
 namespace LazySpawner;
@@ -18,6 +19,7 @@ public class Controller : MonoBehaviour
 {
     public static Controller Instance { get; private set; }
 
+    // The screen's name in the console, which it's found by. What it's called there is localised.
     public const string ScreenName = "Spawn Vessels";
 
     // Craft.
@@ -34,17 +36,17 @@ public class Controller : MonoBehaviour
     public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", FindBody);
 
     // Nearby.
-    public static readonly TextField<float> range = new TextField<float>("Within (m)", "100", TextField<float>.ParseFloat, r => r >= 0, "How far from the active vessel they can be.");
+    public static readonly TextField<float> range = new TextField<float>("Range", "100", TextField<float>.ParseFloat, r => r >= 0);
 
     // Orbit.
     public static readonly Setting<bool> advancedOrbit = false;
-    public static readonly TextField<double> altitude = new TextField<double>("Altitude (km)", "100", s => TextField<double>.ParseDouble(s) * 1000);
-    public static readonly TextField<double> inclination = new TextField<double>("Inclination (°)", "0", TextField<double>.ParseDouble);
-    public static readonly TextField<double> sma = new TextField<double>("Semi-Major Axis (km)", "700", s => TextField<double>.ParseDouble(s) * 1000, a => a != 0);
+    public static readonly TextField<double> altitude = new TextField<double>("Altitude", "100", s => TextField<double>.ParseDouble(s) * 1000);
+    public static readonly TextField<double> inclination = new TextField<double>("Inclination", "0", TextField<double>.ParseDouble);
+    public static readonly TextField<double> sma = new TextField<double>("SemiMajorAxis", "700", s => TextField<double>.ParseDouble(s) * 1000, a => a != 0);
     public static readonly TextField<double> eccentricity = new TextField<double>("Eccentricity", "0", TextField<double>.ParseDouble, e => e >= 0);
-    public static readonly TextField<double> lan = new TextField<double>("Asc. Node (°)", "0", TextField<double>.ParseDouble, tooltip: "Longitude of the ascending node.");
-    public static readonly TextField<double> argPe = new TextField<double>("Arg. of Periapsis (°)", "0", TextField<double>.ParseDouble);
-    public static readonly TextField<double> meanAnomaly = new TextField<double>("Mean Anomaly (°)", "0", TextField<double>.ParseDouble, tooltip: "How far around the orbit from periapsis it is, now.");
+    public static readonly TextField<double> lan = new TextField<double>("AscendingNode", "0", TextField<double>.ParseDouble);
+    public static readonly TextField<double> argPe = new TextField<double>("ArgumentOfPeriapsis", "0", TextField<double>.ParseDouble);
+    public static readonly TextField<double> meanAnomaly = new TextField<double>("MeanAnomaly", "0", TextField<double>.ParseDouble);
     public static readonly Setting<bool> spreadAlongOrbit = true;
 
     // Launch site, by name.
@@ -156,7 +158,7 @@ public class Controller : MonoBehaviour
             return false;
 
         Select(craft);
-        Instance.status = $"Picked up {craft.DisplayName} from the clipboard.";
+        Instance.status = Loc("Status_Clipboard", craft.DisplayName);
         Instance.statusIsError = false;
         return true;
     }
@@ -250,7 +252,7 @@ public class Controller : MonoBehaviour
                 break;
             }
 
-            status = $"Spawning... {lastSpawned.Count}/{situations.Count}";
+            status = Loc("Status_Spawning", lastSpawned.Count, situations.Count);
             yield return null;
         }
 
@@ -258,8 +260,8 @@ public class Controller : MonoBehaviour
         if (spawned > 0)
         {
             status = spawned == 1
-                ? $"Spawned {template.DisplayName}."
-                : $"Spawned {spawned} × {template.DisplayName} in {timer.Elapsed.TotalSeconds:N1} s.";
+                ? Loc("Status_SpawnedOne", template.DisplayName)
+                : Loc("Status_Spawned", spawned, template.DisplayName, timer.Elapsed.TotalSeconds.ToString("N1"));
             statusIsError = false;
             ScreenMessages.PostScreenMessage(status, 3f, ScreenMessageStyle.UPPER_CENTER);
         }
@@ -271,7 +273,7 @@ public class Controller : MonoBehaviour
     {
         int removed = lastSpawned.Count(Spawner.Remove);
         lastSpawned.RemoveAll(v => v == null || v.state == Vessel.State.DEAD);
-        status = removed == 1 ? "Removed 1 vessel." : $"Removed {removed} vessels.";
+        status = Loc("Status_Removed", removed);
         statusIsError = false;
     }
 
@@ -286,7 +288,7 @@ public class Controller : MonoBehaviour
 
     private void ShowError(Exception e)
     {
-        string title = "Spawning Failed";
+        string title = Loc("Error_Title");
         string message = e.Message;
 
         if (e is SpawnException spawnException)
@@ -307,7 +309,7 @@ public class Controller : MonoBehaviour
         List<SpawnSituation> situations = new List<SpawnSituation>();
 
         if (situationMode == SituationMode.Orbit && !body.Valid)
-            throw new SpawnException($"There's no celestial body called {body.Text}.");
+            throw new SpawnException(Loc("Error_NoBody", body.Text));
 
         switch (situationMode.Value)
         {
@@ -334,7 +336,7 @@ public class Controller : MonoBehaviour
                 break;
 
             case SituationMode.LaunchSite:
-                LaunchSites.Site site = LaunchSites.Named(launchSite) ?? throw new SpawnException("There are no launch sites.");
+                LaunchSites.Site site = LaunchSites.Named(launchSite) ?? throw new SpawnException(Loc("Summary_NoLaunchSites"));
                 return Formations.LandedRow(template, site.body, site.latitude, site.longitude, site.heading, number, false);
         }
 
@@ -388,7 +390,7 @@ public class Controller : MonoBehaviour
             Craft craft = SelectedCraft;
             if (craft == null)
             {
-                error = "Choose a craft.";
+                error = Loc("Craft_Choose");
                 return null;
             }
 
@@ -399,7 +401,7 @@ public class Controller : MonoBehaviour
             original = CloneSource();
             if (original == null)
             {
-                error = HighLogic.LoadedSceneIsFlight ? "There's no active vessel to clone." : "Select a vessel to clone.";
+                error = Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel");
                 return null;
             }
 

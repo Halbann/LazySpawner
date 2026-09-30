@@ -48,7 +48,7 @@ internal static class DebugUI
     #region Screens
 
     // Add a screen to the console's list. Its prefab needs a component that builds the screen in Awake.
-    public static void AddScreen<T>(string parent, string name) where T : MonoBehaviour
+    public static void AddScreen<T>(string parent, string name, string text) where T : MonoBehaviour
     {
         // Already there from before a hot reload, which brings its components up to date.
         if (Spawner.debugScreens.screens.Any(s => s.name == name))
@@ -59,7 +59,7 @@ internal static class DebugUI
         Object.DontDestroyOnLoad(prefab);
         prefab.AddComponent<T>();
 
-        Spawner.debugScreens.screens.Add(new AddDebugScreens.ScreenWrapper { parentName = parent, name = name, text = name, screen = (RectTransform)prefab.transform });
+        Spawner.debugScreens.screens.Add(new AddDebugScreens.ScreenWrapper { parentName = parent, name = name, text = text, screen = (RectTransform)prefab.transform });
     }
 
     public static bool Shown => Spawner != null && Spawner.screen.isShown;
