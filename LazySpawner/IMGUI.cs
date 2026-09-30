@@ -656,7 +656,8 @@ public class IMGUI : MonoBehaviour
             "<b>Landed</b> puts vessels on the ground at the coordinates you give, side by side if there are several. " +
             "The default coordinates are the KSC runway.\n\n" +
             "<b>Place...</b> lets you point at where you want vessels instead: at the ground or around the active vessel " +
-            "in the flight view, or at any planet or moon in the map. Click to spawn, Q/E to turn, " +
+            "in the flight view, or at any planet or moon in the map. In Orbit mode, point anywhere around " +
+            "the planet: the orbit faces you, so turn the camera to tilt it. Click to spawn, Q/E to turn, " +
             "shift-click to keep going, right-click to stop.\n\n" +
             "<b>Undo</b> removes the vessels you just spawned, and sends their crew home.\n\n" +
             "Spawned vessels start unloaded and load in like any other vessel when they come into range.",
@@ -1016,7 +1017,7 @@ public class IMGUI : MonoBehaviour
             case SituationMode.Landed:
                 return map ? PlacementTool.Kind.Map : InFlight ? PlacementTool.Kind.Ground : PlacementTool.Kind.None;
             case SituationMode.Orbit:
-                return map ? PlacementTool.Kind.MapOrbit : PlacementTool.Kind.None;
+                return map || InFlight ? PlacementTool.Kind.MapOrbit : PlacementTool.Kind.None;
             case SituationMode.Nearby:
                 if (!InFlight || map)
                     return PlacementTool.Kind.None;
@@ -1026,6 +1027,18 @@ public class IMGUI : MonoBehaviour
             default:
                 return PlacementTool.Kind.None;
         }
+    }
+
+    // Orbits are placed in the map, so go there first.
+    private IEnumerator PlaceInMap(PlacementTool.Kind kind)
+    {
+        MapView.EnterMapView();
+
+        for (int i = 0; i < 120 && !MapView.MapIsEnabled; i++)
+            yield return null;
+
+        if (MapView.MapIsEnabled)
+            placementTool.Begin(kind);
     }
 
     private void PlaceButton(bool ready)
@@ -1048,6 +1061,8 @@ public class IMGUI : MonoBehaviour
         {
             if (placing)
                 placementTool.Stop();
+            else if (kind == PlacementTool.Kind.MapOrbit && !MapView.MapIsEnabled && HighLogic.LoadedSceneIsFlight)
+                StartCoroutine(PlaceInMap(kind));
             else
                 placementTool.Begin(kind);
         }

@@ -18,7 +18,7 @@ Open it with the toolbar button or **Alt+F**.
 
 The window previews where vessels will go:
 
-- **Landed** shows see-through ghosts of the vessels in the flight view, and markers on the planet in map view.
+- **Landed** shows see-through ghosts of the vessels in the flight view, and markers on the planet in map view. The ghosts turn red if they'd land on top of another vessel.
 - **Orbit** draws the orbit in map view, with a marker for each vessel.
 
 **Place...** lets you point at where you want them instead:
@@ -26,6 +26,7 @@ The window previews where vessels will go:
 - In the flight view near the ground, a ghost follows the mouse over the terrain, runways, and rooftops. It turns red if the ground is too steep or another vessel is in the way.
 - In the flight view in space, a ghost follows the mouse around the active vessel.
 - In map view or the Tracking Station, point at any planet or moon.
+- In **Orbit** mode, point anywhere around the planet in map view. The orbit is a circle through the mouse, facing you: look down on the pole for an equatorial orbit, or from the side for a polar one. **Q/E** reverse it.
 
 Click to spawn. **Q/E** turn the vessel, **shift-click** keeps placing, **right-click** or **Escape** stops.
 
