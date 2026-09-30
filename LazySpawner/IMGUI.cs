@@ -751,7 +751,7 @@ public class IMGUI : MonoBehaviour
             UnityEngine.Debug.LogException(e);
 
         // The popup has the whole message. A long one would make the window taller than the screen.
-        status = message.Split('\n')[0].TrimEnd(':', ' ');
+        status = e is CraftParser.MissingPartsException missing ? missing.ShortMessage : message.Split('\n')[0].TrimEnd(':', ' ');
         statusIsError = true;
 
         PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", title, message, Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
