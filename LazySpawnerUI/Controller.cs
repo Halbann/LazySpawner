@@ -98,6 +98,10 @@ public class Controller : MonoBehaviour
         // Fields that parse into game objects need the game to have loaded first.
         body.Refresh();
 
+        // There's nothing to be near in the tracking station.
+        if (HighLogic.LoadedScene == GameScenes.TRACKSTATION && situationMode == SituationMode.Nearby)
+            situationMode.Value = SituationMode.Place;
+
         if (!File.Exists(craftPath.Value))
             craftPath.Value = CraftList.All.FirstOrDefault(c => c.MissingParts.Count == 0)?.path ?? "";
     }
