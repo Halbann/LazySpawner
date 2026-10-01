@@ -198,16 +198,10 @@ public class Controller : MonoBehaviour
         return true;
     }
 
-    internal static Vessel CloneSource()
-    {
-        if (HighLogic.LoadedSceneIsFlight)
-            return FlightGlobals.ActiveVessel;
-
-        if (HighLogic.LoadedScene == GameScenes.TRACKSTATION && SpaceTracking.Instance != null)
-            return SpaceTracking.Instance.SelectedVessel;
-
-        return null;
-    }
+    internal static Vessel CloneSource() =>
+        HighLogic.LoadedSceneIsFlight ? FlightGlobals.ActiveVessel
+        : HighLogic.LoadedScene == GameScenes.TRACKSTATION && SpaceTracking.Instance != null ? SpaceTracking.Instance.SelectedVessel
+        : null;
 
     // The stock craft browser, for anyone who prefers it. The console would cover it, so it goes away meanwhile.
     internal IEnumerator StockCraftBrowser()

@@ -6,19 +6,7 @@ namespace LazySpawner;
 
 internal static class Logger
 {
-    private static string Format(string message, string sourceFilePath)
-    {
-        string className = Path.GetFileNameWithoutExtension(sourceFilePath);
-        return $"[{Meta.name}]: {className}: {message}";
-    }
-
-    // The compiler automatically fills in callerFilePath at compile time
-    public static void Log(string message, [CallerFilePath] string sourceFilePath = "") =>
-        Debug.Log(Format(message, sourceFilePath));
-
-    public static void LogWarning(string message, [CallerFilePath] string sourceFilePath = "") =>
-        Debug.LogWarning(Format(message, sourceFilePath));
-
-    public static void Error(string message, [CallerFilePath] string sourceFilePath = "") =>
-        Debug.LogError(Format(message, sourceFilePath));
+    // "[LazySpawner]: Spawner: message". The compiler fills in the file it's called from.
+    public static void Log(string message, LogType type = LogType.Log, [CallerFilePath] string sourceFilePath = "") =>
+        Debug.unityLogger.Log(type, $"[{Meta.name}]: {Path.GetFileNameWithoutExtension(sourceFilePath)}: {message}");
 }

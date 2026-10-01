@@ -72,7 +72,7 @@ internal class GlobalSettings : MonoBehaviour
         }
         catch (Exception e)
         {
-            Logger.Error($"Failed to save settings: {e}");
+            Logger.Log($"Failed to save settings: {e}", LogType.Error);
         }
     }
 
@@ -89,7 +89,7 @@ internal class GlobalSettings : MonoBehaviour
             }
             catch (Exception e)
             {
-                Logger.LogWarning($"Couldn't read the setting {name}: {e.Message}");
+                Logger.Log($"Couldn't read the setting {name}: {e.Message}", LogType.Warning);
             }
         }
     }

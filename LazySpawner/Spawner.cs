@@ -264,18 +264,13 @@ public static class Spawner
     {
         ConfigNode[] parts = vesselNode.GetNodes("PART");
         bool[] remove = new bool[parts.Length];
-        bool any = false;
 
         // Parents always come before their children, so one pass catches whole branches.
         for (int i = 1; i < parts.Length; i++)
         {
             int.TryParse(parts[i].GetValue("parent"), out int parent);
             remove[i] = IsLaunchClamp(parts[i].GetValue("name")) || parent >= 0 && parent < i && remove[parent];
-            any |= remove[i];
         }
-
-        if (!any)
-            return;
 
         int[] newIndex = new int[parts.Length];
         for (int i = 0, next = 0; i < parts.Length; i++)

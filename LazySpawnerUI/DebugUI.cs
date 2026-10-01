@@ -85,15 +85,23 @@ internal static class DebugUI
         return clone;
     }
 
-    // A vertical stack, for a screen or a section of one.
-    public static RectTransform Column(Transform parent, float spacing = 3, RectOffset padding = null)
+    // An empty UI object, for laying out others.
+    public static RectTransform Empty(Transform parent, string name)
     {
-        RectTransform column = new GameObject("Column", typeof(RectTransform)).GetComponent<RectTransform>();
-        column.SetParent(parent, false);
+        RectTransform empty = new GameObject(name, typeof(RectTransform)).GetComponent<RectTransform>();
+        empty.SetParent(parent, false);
+        return empty;
+    }
 
+    // A vertical stack, for a screen or a section of one.
+    public static RectTransform Column(Transform parent, float spacing = 3, RectOffset padding = null) =>
+        Stack(Empty(parent, "Column"), spacing, padding ?? new RectOffset());
+
+    private static RectTransform Stack(RectTransform column, float spacing, RectOffset padding)
+    {
         VerticalLayoutGroup layout = column.gameObject.AddComponent<VerticalLayoutGroup>();
         layout.spacing = spacing;
-        layout.padding = padding ?? new RectOffset();
+        layout.padding = padding;
         layout.childControlWidth = layout.childControlHeight = layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
         return column;
@@ -102,9 +110,7 @@ internal static class DebugUI
     // Widgets side by side.
     public static RectTransform Row(Transform parent, float spacing = 4)
     {
-        RectTransform row = new GameObject("Row", typeof(RectTransform)).GetComponent<RectTransform>();
-        row.SetParent(parent, false);
-
+        RectTransform row = Empty(parent, "Row");
         HorizontalLayoutGroup layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
         layout.spacing = spacing;
         layout.childAlignment = TextAnchor.MiddleLeft;
@@ -128,8 +134,7 @@ internal static class DebugUI
         heading.fontSize *= 1.2f;
         heading.GetComponent<LayoutElement>().preferredHeight = 24;
 
-        GameObject line = new GameObject("Line", typeof(RectTransform));
-        line.transform.SetParent(parent, false);
+        GameObject line = Empty(parent, "Line").gameObject;
         line.AddComponent<Image>().color = new Color(0.4f, 0.4f, 0.4f);
         line.AddComponent<LayoutElement>().minHeight = 1;
         Spacer(parent, 2);
@@ -221,8 +226,7 @@ internal static class DebugUI
         if (scroll.viewport == null)
             scroll.viewport = (RectTransform)scroll.content.parent;
 
-        RectTransform content = new GameObject("Content", typeof(RectTransform)).GetComponent<RectTransform>();
-        content.SetParent(scroll.viewport, false);
+        RectTransform content = Empty(scroll.viewport, "Content");
         content.anchorMin = new Vector2(0, 1);
         content.anchorMax = Vector2.one;
         content.pivot = new Vector2(0.5f, 1);
@@ -236,23 +240,13 @@ internal static class DebugUI
     // A scrolling list. Returns the list's contents.
     public static RectTransform ScrollList(Transform parent, float minHeight)
     {
-        RectTransform content = ScrollView(parent, minHeight).content;
-        VerticalLayoutGroup list = content.gameObject.AddComponent<VerticalLayoutGroup>();
-        list.spacing = 2;
-        list.padding = new RectOffset(6, 6, 4, 4);
-        list.childControlWidth = list.childControlHeight = list.childForceExpandWidth = true;
-        list.childForceExpandHeight = false;
-
+        RectTransform content = Stack(ScrollView(parent, minHeight).content, 2, new RectOffset(6, 6, 4, 4));
         content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         return content;
     }
 
-    public static void Spacer(Transform parent, float height = 6)
-    {
-        GameObject spacer = new GameObject("Spacer", typeof(RectTransform));
-        spacer.transform.SetParent(parent, false);
-        spacer.AddComponent<LayoutElement>().minHeight = height;
-    }
+    public static void Spacer(Transform parent, float height = 6) =>
+        Empty(parent, "Spacer").gameObject.AddComponent<LayoutElement>().minHeight = height;
 
     public static T Tooltip<T>(T widget, string text) where T : Component
     {

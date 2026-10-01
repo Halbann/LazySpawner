@@ -93,9 +93,6 @@ internal class CraftParser
 
         Quaternion inverseRoot = Quaternion.Inverse(root.rotation);
         int highestStage = -1;
-        VesselType vesselType = VesselType.Debris;
-        VesselNaming vesselNaming = null;
-
         foreach (PartInfo info in sortedParts)
         {
             Vector3 position = inverseRoot * (info.position - root.position);
@@ -103,28 +100,14 @@ internal class CraftParser
             ConfigNode partNode = CreatePartNode(info, position, rotation, missionFlag, out int inverseStage);
             template.node.AddNode(partNode);
             templateParts.Add(new TemplatePart { info = info.availablePart, variant = partNode.GetValue("moduleVariantName"), position = position, rotation = rotation });
-
             highestStage = Math.Max(highestStage, inverseStage);
-
-            if (info.availablePart.partPrefab.vesselType > vesselType)
-                vesselType = info.availablePart.partPrefab.vesselType;
-
-            ConfigNode namingNode = info.craftNode.GetNode("VESSELNAMING");
-            if (namingNode != null)
-            {
-                VesselNaming naming = new VesselNaming(namingNode);
-                if (naming.namingPriority > (vesselNaming?.namingPriority ?? 0))
-                    vesselNaming = naming;
-            }
         }
 
-        // Vessel.
-
-        if (vesselNaming != null)
-        {
-            vesselType = vesselNaming.vesselType;
-            template.Name = vesselNaming.vesselName;
-        }
+        // Vessel. Named and typed by the part with the strongest naming, like a probe core, or else typed by its parts.
+        VesselNaming naming = sortedParts.Select(p => p.craftNode.GetNode("VESSELNAMING")).Where(n => n != null).Select(n => new VesselNaming(n))
+            .Where(n => n.namingPriority > 0).OrderByDescending(n => n.namingPriority).FirstOrDefault();
+        template.Name = naming?.vesselName ?? template.Name;
+        VesselType vesselType = naming?.vesselType ?? sortedParts.Max(p => p.availablePart.partPrefab.vesselType);
 
         AddVesselValues(craftNode, template.node, template.Name, vesselType, highestStage + 1);
 

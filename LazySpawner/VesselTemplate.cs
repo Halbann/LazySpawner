@@ -32,11 +32,7 @@ public class VesselTemplate
     public Bounds BoundsFor(bool landed) => landed ? LandedBounds : SpaceBounds;
 
     // Radius of a sphere around the root part that encloses the vessel.
-    public float Radius(bool landed)
-    {
-        Bounds bounds = BoundsFor(landed);
-        return bounds.center.magnitude + bounds.extents.magnitude;
-    }
+    public float Radius(bool landed) => BoundsFor(landed).center.magnitude + BoundsFor(landed).extents.magnitude;
 
     // How many kerbals a crew mode puts aboard, besides any listed: one pilot, every command seat, or every seat.
     public int Seats(CrewMode mode)
@@ -131,9 +127,6 @@ public class VesselTemplate
     #endregion
 
     internal static string Format(double value) =>
-        value.ToString("R", CultureInfo.InvariantCulture);
-
-    internal static string Format(float value) =>
         value.ToString("R", CultureInfo.InvariantCulture);
 }
 

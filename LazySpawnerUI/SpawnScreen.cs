@@ -310,8 +310,7 @@ public class SpawnScreen : MonoBehaviour
 
     private static RawImage Thumbnail(Transform parent, float size = 36)
     {
-        GameObject image = new GameObject("Thumbnail", typeof(RectTransform));
-        image.transform.SetParent(parent, false);
+        GameObject image = DebugUI.Empty(parent, "Thumbnail").gameObject;
         LayoutElement layout = image.AddComponent<LayoutElement>();
         layout.minWidth = layout.preferredWidth = layout.minHeight = layout.preferredHeight = size;
         return image.AddComponent<RawImage>();

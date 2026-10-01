@@ -45,8 +45,10 @@ public static class Placement
     // Rotation of a frame on the surface with y = up and z = the heading (degrees clockwise from north).
     public static Quaternion SurfaceFrame(CelestialBody body, double latitude, double longitude, float heading)
     {
+        // North along the surface, or at the poles, any direction will do.
         Vector3d up = body.GetSurfaceNVector(latitude, longitude);
-        Vector3d north = North(body, up);
+        Vector3d north = Vector3d.Exclude(up, body.transform.up);
+        north = (north.sqrMagnitude < 1e-8 ? Vector3d.Exclude(up, body.transform.forward) : north).normalized;
         Vector3d east = Vector3d.Cross(up, north);
 
         // Make sure east really is the direction of increasing longitude, whatever the handedness.
@@ -58,18 +60,6 @@ public static class Placement
         Vector3d forward = north * Math.Cos(h) + east * Math.Sin(h);
 
         return Quaternion.LookRotation(forward, up);
-    }
-
-    private static Vector3d North(CelestialBody body, Vector3d up)
-    {
-        Vector3d axis = body.transform.up;
-        Vector3d north = Vector3d.Exclude(up, axis);
-
-        // At the poles any direction will do.
-        if (north.sqrMagnitude < 1e-8)
-            north = Vector3d.Exclude(up, body.transform.forward);
-
-        return north.normalized;
     }
 
     // Degrees clockwise from north, of a direction seen from above.

@@ -58,7 +58,7 @@ internal class Craft
         }
         catch (Exception e)
         {
-            Logger.LogWarning($"Couldn't read {path}: {e.Message}");
+            Logger.Log($"Couldn't read {path}: {e.Message}", LogType.Warning);
         }
     }
 

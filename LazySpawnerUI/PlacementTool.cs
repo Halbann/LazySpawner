@@ -120,7 +120,7 @@ public class PlacementTool : MonoBehaviour
         }
         catch (Exception e)
         {
-            Logger.Error($"Preview failed: {e}");
+            Logger.Log($"Preview failed: {e}", LogType.Error);
             Stop();
         }
     }
@@ -337,15 +337,7 @@ public class PlacementTool : MonoBehaviour
     private static CelestialBody MapBody()
     {
         MapObject target = PlanetariumCamera.fetch?.target;
-        if (target != null)
-        {
-            if (target.celestialBody != null)
-                return target.celestialBody;
-            if (target.vessel != null)
-                return target.vessel.mainBody;
-        }
-
-        return Controller.body.Valid ? Controller.body.value : null;
+        return target?.celestialBody ?? target?.vessel?.mainBody ?? (Controller.body.Valid ? Controller.body.value : null);
     }
 
     // Where a ray first meets a body's ground, the hills and valleys its colliders only cover close up. Steps along
@@ -481,15 +473,15 @@ public class PlacementTool : MonoBehaviour
                     ghosts.Add(new Ghost(template));
 
                 Ghost ghost = ghosts[used++];
-                ghost.SetPose(position, rotation);
+                ghost.gameObject.transform.SetPositionAndRotation(position, rotation);
                 ghost.ShowLaunchClamps(situation.landed);
                 ghost.SetColor(placeValid ? Ghost.validColor : Ghost.invalidColor);
-                ghost.Visible = true;
+                ghost.gameObject.SetActive(true);
             }
         }
 
         for (int i = used; i < ghosts.Count; i++)
-            ghosts[i].Visible = false;
+            ghosts[i].gameObject.SetActive(false);
     }
 
     private void ClearGhosts()
@@ -637,24 +629,12 @@ public class PlacementTool : MonoBehaviour
         GUI.Box(rect, content, hintStyle);
     }
 
+    // A ring with a dot in the middle, 32 pixels across.
     private static Texture2D CreateMarkerTexture()
     {
-        // A ring with a dot in the middle.
-        const int size = 32;
-        Texture2D texture = new Texture2D(size, size, TextureFormat.ARGB32, false);
-        float c = (size - 1) * 0.5f;
-
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                float r = new Vector2(x - c, y - c).magnitude;
-                float ring = Mathf.Clamp01(1.5f - Mathf.Abs(r - 12f));
-                float dot = Mathf.Clamp01(4.5f - r);
-                texture.SetPixel(x, y, new Color(1, 1, 1, Mathf.Max(ring, dot)));
-            }
-        }
-
+        Texture2D texture = new Texture2D(32, 32, TextureFormat.ARGB32, false);
+        texture.SetPixels(Enumerable.Range(0, 32 * 32).Select(i => new Vector2(i % 32 - 15.5f, i / 32 - 15.5f).magnitude)
+            .Select(r => new Color(1, 1, 1, Mathf.Max(Mathf.Clamp01(1.5f - Mathf.Abs(r - 12f)), Mathf.Clamp01(4.5f - r)))).ToArray());
         texture.Apply();
         return texture;
     }
