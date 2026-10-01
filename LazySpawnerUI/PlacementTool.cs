@@ -643,12 +643,21 @@ public class PlacementTool : MonoBehaviour
             padding = new RectOffset(8, 8, 6, 6),
         };
 
-        string roll = GameSettings.Editor_rollLeft.name + "/" + GameSettings.Editor_rollRight.name;
-        string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(k => k.name));
-        string fine = GameSettings.Editor_fineTweak.name;
+        // Modifiers by the names on the keys: Shift, not LeftShift.
+        string Key(KeyBinding key) => key.primary.code switch
+        {
+            KeyCode.LeftShift or KeyCode.RightShift => "Shift",
+            KeyCode.LeftControl or KeyCode.RightControl => "Ctrl",
+            KeyCode.LeftAlt or KeyCode.RightAlt => "Alt",
+            _ => key.name,
+        };
+
+        string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
+        string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
+        string fine = Key(GameSettings.Editor_fineTweak);
         string turning = kind == Kind.MapOrbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
             : Controller.randomRotation ? null
-            : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, GameSettings.Editor_resetRotation.name)
+            : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, Key(GameSettings.Editor_resetRotation))
             : Loc("Placing_Turn", roll, fine);
         string controls = string.Join(" · ", new[] { Loc("Placing_Spawn"), turning, Loc("Placing_KeepPlacing"), Loc("Placing_Stop") }.Where(s => s != null));
 
