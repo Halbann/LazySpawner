@@ -201,7 +201,7 @@ public class PlacementTool : MonoBehaviour
         bool nearGround = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude <= 2000;
         bool collider = Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore);
         double distance = 0;
-        if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, double.MaxValue, 20, out distance)))
+        if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
         {
             if (!nearGround)
                 return null;
@@ -476,13 +476,9 @@ public class PlacementTool : MonoBehaviour
                 if (used >= maxGhosts)
                     break;
 
-                // Too far away to see a ghost, so a marker like the map's instead.
                 (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation);
                 if (((Vector3)position - camera).magnitude > ghostRange)
-                {
-                    markers.Add((position, situation.body));
                     continue;
-                }
 
                 if (used >= ghosts.Count)
                     ghosts.Add(new Ghost(template));
@@ -576,11 +572,9 @@ public class PlacementTool : MonoBehaviour
             DrawHint();
     }
 
-    // In the map, or in flight where ghosts would be too far away to see.
     private void DrawMarkers()
     {
-        bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
-        Camera camera = map ? PlanetariumCamera.Camera : FlightCamera.fetch?.mainCamera;
+        Camera camera = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION ? PlanetariumCamera.Camera : null;
         if (camera == null)
             return;
 
@@ -589,16 +583,15 @@ public class PlacementTool : MonoBehaviour
 
         foreach ((Vector3d world, CelestialBody body) in markers)
         {
-            Vector3d marker = map ? ScaledSpace.LocalToScaledSpace(world) : world;
+            Vector3 marker = ScaledSpace.LocalToScaledSpace(world);
             Vector3 screen = camera.WorldToScreenPoint(marker);
             if (screen.z < 0)
                 continue;
 
             // Hidden behind the planet?
-            Vector3d toMarker = marker - (Vector3d)camera.transform.position;
-            Vector3d centre = map ? (Vector3d)body.scaledBody.transform.position : body.position;
-            double radius = body.Radius * (map ? ScaledSpace.InverseScaleFactor : 1);
-            if (RaySphere((Vector3d)camera.transform.position - centre, toMarker.normalized, radius * 0.995, out double hit, out _) && hit > 0 && hit < toMarker.magnitude)
+            Vector3 toMarker = marker - camera.transform.position;
+            float radius = (float)(body.Radius * ScaledSpace.InverseScaleFactor);
+            if (RaySphere(camera.transform.position - body.scaledBody.transform.position, toMarker.normalized, radius * 0.995f, out double hit, out _) && hit > 0 && hit < toMarker.magnitude)
                 continue;
 
             GUI.DrawTexture(new Rect(screen.x - 8, Screen.height - screen.y - 8, 16, 16), markerTexture);
