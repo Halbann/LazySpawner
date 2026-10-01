@@ -75,7 +75,7 @@ public static class Spawner
 
         try
         {
-            Populate(protoVessel, crew, situation);
+            Populate(protoVessel, template, crew, situation);
 
             // The control point depends on where the crew are.
             if (!keptReference)
@@ -479,89 +479,57 @@ public static class Spawner
 
     #region Crew
 
-    private static void Populate(ProtoVessel protoVessel, CrewSettings settings, SpawnSituation situation)
+    // The listed kerbals first, then as many more as the mode wants, the first aboard a pilot.
+    private static void Populate(ProtoVessel protoVessel, VesselTemplate template, CrewSettings settings, SpawnSituation situation)
     {
-        Queue<ProtoCrewMember> listed = new Queue<ProtoCrewMember>(settings.kerbals ?? Enumerable.Empty<ProtoCrewMember>());
-        if (settings.mode == CrewMode.None && listed.Count == 0)
-            return;
+        List<ProtoCrewMember> listed = settings.kerbals ?? new List<ProtoCrewMember>();
+        HashSet<string> originalRoster = new HashSet<string>(HighLogic.CurrentGame.CrewRoster.kerbals.Keys);
 
-        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
-        HashSet<string> originalRoster = new HashSet<string>(roster.kerbals.Keys);
-        bool pilotAssigned = false;
+        // Every empty seat, command parts first so the pilot ends up somewhere they can fly from. The parts are in
+        // top-down order, so the first command part is also where the stock game would put the pilot.
+        List<(ProtoPartSnapshot part, int seat)> seats = protoVessel.protoPartSnapshots
+            .Where(p => VesselTemplate.Crewable(p.partPrefab))
+            .OrderBy(p => p.partPrefab.HasModuleImplementing<ModuleCommand>() ? 0 : 1)
+            .SelectMany(p => Enumerable.Range(p.protoModuleCrew.Count, p.partPrefab.CrewCapacity - p.protoModuleCrew.Count).Select(seat => (p, seat)))
+            .ToList();
 
-        // Skip non-crew parts, and external seats, which need a kerbal on EVA to sit in them.
-        // Command parts come first so the pilot ends up somewhere they can fly from.
-        // The parts are sorted in top down order, so the first command part is also where
-        // the stock game would put the pilot.
-        IEnumerable<ProtoPartSnapshot> crewable = protoVessel.protoPartSnapshots
-            .Where(p => p.partPrefab.CrewCapacity > 0 && !p.partPrefab.HasModuleImplementing<KerbalSeat>())
-            .OrderBy(p => p.partPrefab.HasModuleImplementing<ModuleCommand>() ? 0 : 1);
-
-        foreach (ProtoPartSnapshot part in crewable)
+        for (int i = 0; i < Math.Min(seats.Count, Math.Max(listed.Count, template.Seats(settings.mode))); i++)
         {
-            int capacity = part.partPrefab.CrewCapacity;
+            (ProtoPartSnapshot part, int seat) = seats[i];
+            ProtoCrewMember crewMember = i < listed.Count ? listed[i] : NextKerbal(settings.onlyNewKerbals, i == 0 ? KerbalRoster.pilotTrait : null);
+            if (crewMember == null)
+                return;
 
-            // Skip passenger parts if we're not filling all seats.
-            bool isPassenger = !part.partPrefab.HasModuleImplementing<ModuleCommand>();
-            if (isPassenger && settings.mode != CrewMode.FillAll && listed.Count == 0)
-                continue;
-
-            // Put a crew member in each seat.
-            for (int seat = part.protoModuleCrew.Count; seat < capacity; seat++)
+            // Set any newly hired kerbals to max level, but don't mess with already existing kerbals.
+            if (!originalRoster.Contains(crewMember.name))
             {
-                bool full = settings.mode == CrewMode.None || settings.mode == CrewMode.Pilot && pilotAssigned;
-                if (full && listed.Count == 0)
-                    return;
-
-                // The very first crew member should always be a pilot.
-                ProtoCrewMember crewMember = listed.Count > 0 ? listed.Dequeue()
-                    : !pilotAssigned ? GetAvailableCrewWithTrait(settings.onlyNewKerbals, KerbalRoster.pilotTrait)
-                    : GetAvailableCrew(settings.onlyNewKerbals);
-
-                if (crewMember == null)
-                    return;
-
-                pilotAssigned = true;
-
-                // Set any newly hired kerbals to max level, but don't mess with already existing kerbals.
-                if (!originalRoster.Contains(crewMember.name))
-                {
-                    KerbalRoster.SetExperienceLevel(crewMember, KerbalRoster.GetExperienceMaxLevel());
-                    hiredKerbals.Add(crewMember.name);
-                }
-
-                crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                crewMember.seatIdx = seat;
-                CreateLogEntry(crewMember, situation);
-
-                part.protoModuleCrew.Add(crewMember);
-                part.protoCrewNames.Add(crewMember.name);
-                protoVessel.AddCrew(crewMember);
+                KerbalRoster.SetExperienceLevel(crewMember, KerbalRoster.GetExperienceMaxLevel());
+                hiredKerbals.Add(crewMember.name);
             }
+
+            crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+            crewMember.seatIdx = seat;
+            CreateLogEntry(crewMember, situation);
+
+            part.protoModuleCrew.Add(crewMember);
+            part.protoCrewNames.Add(crewMember.name);
+            protoVessel.AddCrew(crewMember);
         }
     }
 
-    private static ProtoCrewMember GetAvailableCrew(bool onlyNew)
+    // The next kerbal at the astronaut complex with the trait, if any trait will do, or else a new hire with it.
+    private static ProtoCrewMember NextKerbal(bool onlyNew, string trait)
     {
         KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
-        return onlyNew ? roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew) : roster.GetNextOrNewKerbal(ProtoCrewMember.KerbalType.Crew);
-    }
-
-    // The same as GetNextOrNewKerbal, but with a certain trait like pilot, engineer, scientist.
-    private static ProtoCrewMember GetAvailableCrewWithTrait(bool onlyNew, string trait)
-    {
-        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
-
-        if (!onlyNew)
+        ProtoCrewMember kerbal = onlyNew ? null : roster.Kerbals(ProtoCrewMember.KerbalType.Crew, ProtoCrewMember.RosterStatus.Available).FirstOrDefault(k => trait == null || k.trait == trait);
+        if (kerbal == null)
         {
-            foreach (ProtoCrewMember kerbal in roster.Kerbals(ProtoCrewMember.KerbalType.Crew, ProtoCrewMember.RosterStatus.Available))
-                if (kerbal.trait == trait)
-                    return kerbal;
+            kerbal = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+            if (trait != null)
+                KerbalRoster.SetExperienceTrait(kerbal, trait);
         }
 
-        ProtoCrewMember crewMember = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-        KerbalRoster.SetExperienceTrait(crewMember, trait);
-        return crewMember;
+        return kerbal;
     }
 
     // Create the initial log entry that would otherwise be missing.

@@ -23,6 +23,7 @@ public class SpawnScreen : MonoBehaviour
     public static bool Visible => instance != null && instance.isActiveAndEnabled && DebugUI.Shown;
 
     private readonly List<Action> refresh = new List<Action>();
+    private readonly List<(GameObject widget, ITextField field)> fields = new List<(GameObject, ITextField)>();
     private RectTransform main, picker;
     private GameObject notHere, content;
     private TMP_InputField search;
@@ -46,6 +47,7 @@ public class SpawnScreen : MonoBehaviour
         foreach (Transform child in transform)
             Destroy(child.gameObject);
         refresh.Clear();
+        fields.Clear();
         rows.Clear();
         shownFrom = -1;
 
@@ -147,6 +149,7 @@ public class SpawnScreen : MonoBehaviour
     private TMP_InputField Field(Transform parent, ITextField setting)
     {
         TMP_InputField input = DebugUI.Field(Line(parent, setting.Title, setting.Tooltip), setting.Text, s => setting.Text = s, DebugUI.ControlWidth);
+        fields.Add((input.gameObject, setting));
         refresh.Add(() =>
         {
             if (!input.isFocused && input.text != setting.Text)
@@ -316,12 +319,13 @@ public class SpawnScreen : MonoBehaviour
 
     private void BodyPicker(Transform parent)
     {
-        Stepper(parent, Controller.body.Title, () => Controller.body.Valid ? Controller.body.value.displayName.LocalizeRemoveGender() : Controller.body.Text, step =>
+        Transform picker = Stepper(parent, Controller.body.Title, () => Controller.body.Valid ? Controller.body.value.displayName.LocalizeRemoveGender() : Controller.body.Text, step =>
         {
             List<CelestialBody> bodies = FlightGlobals.Bodies;
             int index = Controller.body.Valid ? bodies.IndexOf(Controller.body.value) : 0;
             Controller.body.Text = bodies[(index + step + bodies.Count) % bodies.Count].bodyName;
         });
+        fields.Add((picker.gameObject, Controller.body));
     }
 
     // Site names are longer than body names.
@@ -336,13 +340,14 @@ public class SpawnScreen : MonoBehaviour
     }
 
     // "< Kerbin >", as wide as a field unless it needs more.
-    private void Stepper(Transform parent, string title, Func<string> current, Action<int> step, float width = DebugUI.ControlWidth)
+    private Transform Stepper(Transform parent, string title, Func<string> current, Action<int> step, float width = DebugUI.ControlWidth)
     {
         Transform row = Line(parent, title);
         DebugUI.Button(row, "<", () => step(-1), 24);
         TextMeshProUGUI name = Text(DebugUI.Label(row, "", width - 56), current);
         name.alignment = TextAlignmentOptions.Center;
         DebugUI.Button(row, ">", () => step(1), 24);
+        return row;
     }
 
     private string CraftDescription()
@@ -401,23 +406,12 @@ public class SpawnScreen : MonoBehaviour
         if (template == null)
             return error is null or MissingPartsException ? new List<string>() : Warnings(new[] { Controller.ShortMessage(error) });
 
-        List<string> problems = new List<string>(), warnings = new List<string>();
-        ITextField[] fields = Controller.situationMode.Value switch
-        {
-            Controller.SituationMode.Place => new ITextField[] { Controller.count },
-            Controller.SituationMode.Nearby => new ITextField[] { Controller.count, Controller.range },
-            Controller.SituationMode.LaunchSite => new ITextField[] { Controller.count },
-            _ => Controller.advancedOrbit
-                ? new ITextField[] { Controller.count, Controller.body, Controller.sma, Controller.eccentricity, Controller.inclination, Controller.lan, Controller.argPe, Controller.meanAnomaly }
-                : new ITextField[] { Controller.count, Controller.body, Controller.altitude, Controller.inclination },
-        };
-
-        foreach (ITextField field in fields.Where(f => !f.Valid))
-            problems.Add(Loc("Summary_FieldWrong", field.Title));
-
+        // Fields on screen that don't make sense.
+        List<string> problems = fields.Where(f => f.widget.activeInHierarchy && !f.field.Valid).Select(f => Loc("Summary_FieldWrong", f.field.Title)).ToList();
         if (problems.Count > 0)
             return Warnings(problems);
 
+        List<string> warnings = new List<string>();
         List<string> lines = new List<string> { Where(template, problems, warnings), Crew(template, Controller.count) };
         ready = problems.Count == 0;
 
@@ -496,15 +490,10 @@ public class SpawnScreen : MonoBehaviour
 
     private static string Crew(VesselTemplate template, int number)
     {
-        CrewMode mode = Controller.crewMode;
-        if (mode == CrewMode.None)
+        if (Controller.crewMode == CrewMode.None)
             return null;
 
-        // The same seats the spawner fills: no external seats, command parts only unless filling all.
-        List<Part> seats = template.Parts.Select(p => p.info?.partPrefab).Where(p => p != null && p.CrewCapacity > 0 && !p.HasModuleImplementing<KerbalSeat>()).ToList();
-        int each = mode == CrewMode.Pilot ? Math.Min(1, seats.Count)
-            : seats.Where(p => mode == CrewMode.FillAll || p.HasModuleImplementing<ModuleCommand>()).Sum(p => p.CrewCapacity);
-
+        int each = template.Seats(Controller.crewMode);
         if (each == 0)
             return Loc("Crew_NoSeats");
 

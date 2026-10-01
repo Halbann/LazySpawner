@@ -38,6 +38,23 @@ public class VesselTemplate
         return bounds.center.magnitude + bounds.extents.magnitude;
     }
 
+    // How many kerbals a crew mode puts aboard, besides any listed: one pilot, every command seat, or every seat.
+    public int Seats(CrewMode mode)
+    {
+        List<Part> crewable = Parts.Select(p => p.info?.partPrefab).Where(Crewable).ToList();
+        return mode switch
+        {
+            CrewMode.None => 0,
+            CrewMode.Pilot => Math.Min(1, crewable.Count),
+            CrewMode.FillCommand => crewable.Where(p => p.HasModuleImplementing<ModuleCommand>()).Sum(p => p.CrewCapacity),
+            _ => crewable.Sum(p => p.CrewCapacity),
+        };
+    }
+
+    // Not external seats, which need a kerbal on EVA to sit in them.
+    internal static bool Crewable(Part part) =>
+        part != null && part.CrewCapacity > 0 && !part.HasModuleImplementing<KerbalSeat>();
+
     public static VesselTemplate FromCraft(string craftPath) => CraftParser.Parse(craftPath);
 
     // A craft as a craft file would have it, like the one in the editor: EditorLogic.fetch.ship.SaveShip().
