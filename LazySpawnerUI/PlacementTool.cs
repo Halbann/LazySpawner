@@ -307,34 +307,16 @@ public class PlacementTool : MonoBehaviour
     // False if the mouse isn't over a planet or moon.
     private bool PlaceOnMap(VesselTemplate template)
     {
-        Camera camera = PlanetariumCamera.Camera;
-        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
+        // The planets in the map are spheres in scaled space, with colliders on their own layer.
+        Ray ray = PlanetariumCamera.Camera.ScreenPointToRay(Input.mousePosition);
+        if (!Physics.Raycast(ray, out RaycastHit hit, float.MaxValue, 1 << 10, QueryTriggerInteraction.Ignore))
+            return false;
 
-        // The planets in the map are spheres in scaled space.
-        CelestialBody hitBody = null;
-        float nearest = float.MaxValue;
-        Vector3 hitPoint = Vector3.zero;
-
-        foreach (CelestialBody body in FlightGlobals.Bodies)
-        {
-            if (body.scaledBody == null)
-                continue;
-
-            Vector3 centre = body.scaledBody.transform.position;
-            float radius = (float)(body.Radius * ScaledSpace.InverseScaleFactor);
-
-            if (RaySphere(ray, centre, radius, out float distance) && distance < nearest)
-            {
-                nearest = distance;
-                hitBody = body;
-                hitPoint = ray.GetPoint(distance);
-            }
-        }
-
+        CelestialBody hitBody = FlightGlobals.Bodies.Find(body => body.scaledBody == hit.collider.gameObject);
         if (hitBody == null)
             return false;
 
-        Vector3d direction = (hitPoint - hitBody.scaledBody.transform.position).normalized;
+        Vector3d direction = (hit.point - hitBody.scaledBody.transform.position).normalized;
         Vector3d surface = hitBody.position + direction * hitBody.Radius;
         double latitude = hitBody.GetLatitude(surface);
         double longitude = hitBody.GetLongitude(surface);
