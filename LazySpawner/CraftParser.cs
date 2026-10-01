@@ -269,31 +269,24 @@ internal class CraftParser
         inverseStage = 0;
         int.TryParse(Get("istg", "0"), out inverseStage);
 
-        // The persistent ID from the craft is kept for now, because robotics controllers reference
-        // parts by it. The spawner replaces it with a unique one and fixes up those references.
+        // Only what the game's defaults don't already cover. The spawner gives the part its IDs. The persistent
+        // ID from the craft is kept for now, because robotics controllers reference parts by it. The spawner
+        // replaces it with a unique one and fixes up those references.
         node.AddValue("name", info.partName);
         node.AddValue("cid", info.craftID);
-        node.AddValue("uid", 0);
-        node.AddValue("mid", 0);
         node.AddValue("persistentId", Get("persistentId", "0"));
-        node.AddValue("launchID", 0);
         node.AddValue("parent", info.parent?.index ?? 0);
         node.AddValue("position", KSPUtil.WriteVector(position));
         node.AddValue("rotation", KSPUtil.WriteQuaternion(rotation));
         node.AddValue("mirror", Get("mir", "1,1,1"));
-        node.AddValue("symMethod", Get("symMethod", "Radial"));
         node.AddValue("istg", inverseStage);
-        node.AddValue("resPri", Get("resPri", "0"));
-        node.AddValue("dstg", Get("dstg", "0"));
         node.AddValue("sqor", Get("sqor", "-1"));
-        node.AddValue("sepI", Get("sepI", "0"));
         node.AddValue("sidx", Get("sidx", "-1"));
-        node.AddValue("attm", Get("attm", "0"));
-        node.AddValue("sameVesselCollision", Get("sameVesselCollision", "False"));
 
-        string customData = craft.GetValue("cData");
-        if (!string.IsNullOrEmpty(customData))
-            node.AddValue("cData", customData);
+        // The game's defaults for these are the same as the editor's.
+        foreach (string copied in new[] { "symMethod", "resPri", "dstg", "sepI", "attm", "sameVesselCollision", "autostrutMode", "rigidAttachment", "modCost", "cData" })
+            if (craft.GetValue(copied) is string value)
+                node.AddValue(copied, value);
 
         foreach (uint symID in info.symmetry)
             if (partsByCraftID.TryGetValue(symID, out PartInfo counterpart))
@@ -306,23 +299,14 @@ internal class CraftParser
                 node.AddValue("attN", attN);
 
         node.AddValue("mass", VesselTemplate.Format(prefab.mass + moduleMass));
-        node.AddValue("shielded", false);
         node.AddValue("temp", 300);
         node.AddValue("tempExt", 300);
         node.AddValue("tempExtUnexp", 300);
-        node.AddValue("staticPressureAtm", 0);
         node.AddValue("expt", VesselTemplate.Format(prefab.explosionPotential));
-        node.AddValue("state", (int)PartStates.IDLE);
-        node.AddValue("PreFailState", (int)PartStates.IDLE);
         node.AddValue("attached", true);
-        node.AddValue("autostrutMode", Get("autostrutMode", "Off"));
-        node.AddValue("rigidAttachment", Get("rigidAttachment", "False"));
         node.AddValue("flag", missionFlag);
-        node.AddValue("rTrf", "");
-        node.AddValue("modCost", Get("modCost", "0"));
         node.AddValue("modMass", VesselTemplate.Format(moduleMass));
         node.AddValue("moduleVariantName", GetSelectedVariant(craft));
-        node.AddValue("moduleCargoStackableQuantity", 1);
 
         // Part modules, resources etc. share the same format in craft files and saves.
         foreach (ConfigNode child in craft.nodes)
@@ -430,51 +414,19 @@ internal class CraftParser
     {
         double UT = Planetarium.GetUniversalTime();
 
-        // Values the spawner always overwrites are still written, so that the node is a complete vessel.
-        vesselNode.AddValue("pid", Guid.Empty.ToString("N"));
-        vesselNode.AddValue("persistentId", 0);
+        // Only what the game's defaults don't already cover. The spawner gives the vessel its IDs, situation and
+        // whereabouts.
         vesselNode.AddValue("name", name);
         vesselNode.AddValue("type", vesselType);
-        vesselNode.AddValue("sit", Vessel.Situations.ORBITING);
-        vesselNode.AddValue("landed", false);
-        vesselNode.AddValue("skipGroundPositioning", false);
-        vesselNode.AddValue("skipGroundPositioningForDroppedPart", false);
-        vesselNode.AddValue("vesselSpawning", false);
-        vesselNode.AddValue("launchedFrom", "");
-        vesselNode.AddValue("landedAt", "");
-        vesselNode.AddValue("displaylandedAt", "");
-        vesselNode.AddValue("splashed", false);
-        vesselNode.AddValue("met", 0);
-        vesselNode.AddValue("lct", VesselTemplate.Format(UT));
-        vesselNode.AddValue("lastUT", VesselTemplate.Format(UT));
-        vesselNode.AddValue("distanceTraveled", 0);
-        vesselNode.AddValue("root", 0);
-        vesselNode.AddValue("lat", 0);
-        vesselNode.AddValue("lon", 0);
-        vesselNode.AddValue("alt", 0);
-        vesselNode.AddValue("hgt", -1);
-        vesselNode.AddValue("nrm", KSPUtil.WriteVector(Vector3.up));
-        vesselNode.AddValue("rot", KSPUtil.WriteQuaternion(Quaternion.identity));
-        vesselNode.AddValue("CoM", KSPUtil.WriteVector(Vector3.zero));
         vesselNode.AddValue("stg", stage);
-        vesselNode.AddValue("prst", false);
-        vesselNode.AddValue("ref", 0);
         vesselNode.AddValue("ctrl", true);
-        vesselNode.AddValue("PQSMin", 0);
-        vesselNode.AddValue("PQSMax", 0);
-        vesselNode.AddValue("GroupOverride", 0);
 
         foreach (string copied in new[] { "OverrideDefault", "OverrideActionControl", "OverrideAxisControl", "OverrideGroupNames" })
             if (craftNode.GetValue(copied) is string value)
                 vesselNode.AddValue(copied, value);
 
-        vesselNode.AddValue("altDispState", AltimeterDisplayState.DEFAULT);
-
-        // These can be empty for new vessels, but must be present.
+        // It can be empty, but the game saves it without checking it's there.
         vesselNode.AddNode("ACTIONGROUPS");
-        vesselNode.AddNode("FLIGHTPLAN");
-        vesselNode.AddNode("CTRLSTATE");
-        vesselNode.AddNode("VESSELMODULES");
 
         ConfigNode discovery = vesselNode.AddNode("DISCOVERY");
         discovery.AddValue("state", (int)DiscoveryLevels.Owned);
