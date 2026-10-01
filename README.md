@@ -1,4 +1,4 @@
-KSP mod for spawning vessels individually and en masse in a variety of ways from flight, the tracking station or the SPH/VAB. It's intended as a development and testing aid, so please don't use it to cheat in your career saves! Don't be lazy.
+KSP mod for spawning vessels individually and en masse in a variety of ways from flight, the tracking station or the SPH/VAB.
 
 Press Alt+F, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
 
