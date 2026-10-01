@@ -87,6 +87,13 @@ public class Controller : MonoBehaviour
         FlightDriver.StartAndFocusVessel("persistent", HighLogic.CurrentGame.flightState.protoVessels.IndexOf(spawned));
     }
 
+    // Open a craft in its editor, saving the game first, as leaving flight does.
+    internal static void OpenInEditor(Craft craft)
+    {
+        GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+        EditorDriver.StartAndLoadVessel(craft.path, craft.Editor);
+    }
+
     // The screen is showing, or vessels are being placed with it out of the way.
     internal bool IsOpen => SpawnScreen.Visible || placementTool.Placing;
 
@@ -119,6 +126,14 @@ public class Controller : MonoBehaviour
             situationMode.Value = SituationMode.Orbit;
 
         GameEvents.onEditorShipModified.Add(OnShipModified);
+        GameEvents.onVesselChange.Add(OnVesselChange);
+    }
+
+    // Switched to the one vessel just spawned: it's plainly there, and there's nothing left to do with it.
+    private void OnVesselChange(Vessel vessel)
+    {
+        if (lastSpawned.Count == 1 && lastSpawned[0].vesselRef == vessel)
+            status = "";
     }
 
     protected void Update()
@@ -138,6 +153,7 @@ public class Controller : MonoBehaviour
             Instance = null;
 
         GameEvents.onEditorShipModified.Remove(OnShipModified);
+        GameEvents.onVesselChange.Remove(OnVesselChange);
         GlobalSettings.Save();
     }
 
@@ -197,7 +213,7 @@ public class Controller : MonoBehaviour
     internal IEnumerator StockCraftBrowser()
     {
         bool complete = false;
-        EditorFacility facility = SelectedCraft?.facility == "SPH" ? EditorFacility.SPH : EditorFacility.VAB;
+        EditorFacility facility = SelectedCraft?.Editor ?? EditorFacility.VAB;
         DebugUI.Hide();
 
         CraftBrowserDialog craftBrowser = CraftBrowserDialog.Spawn(facility, HighLogic.SaveFolder,

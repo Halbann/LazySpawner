@@ -238,24 +238,29 @@ public class PlacementTool : MonoBehaviour
         if (active == null)
             return true;
 
+        // Nearby ground has colliders, buildings and all. Further away there's only the terrain. From high up,
+        // pointing off the ground is for placing beside the vessel.
+        CelestialBody body = active.mainBody;
         Ray ray = FlightCamera.fetch.mainCamera.ScreenPointToRay(Input.mousePosition);
-        if (!Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore))
+        bool nearGround = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude <= 2000;
+        bool collider = Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore);
+        double distance = 0;
+        if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, out distance)))
         {
-            if (!active.LandedOrSplashed && active.situation != Vessel.Situations.PRELAUNCH && active.radarAltitude > 2000)
+            if (!nearGround)
                 return false;
 
             placeInfo = Loc("Placing_PointAtGround");
             return true;
         }
 
-        CelestialBody body = active.mainBody;
-        body.GetLatLonAlt(hit.point, out double latitude, out double longitude, out _);
+        body.GetLatLonAlt(collider ? hit.point : (Vector3d)ray.origin + (Vector3d)ray.direction * distance, out double latitude, out double longitude, out _);
 
         placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation);
 
-        // Steep ground tips things over, and overlapping vessels explode.
+        // Steep ground tips things over, and overlapping vessels explode. Only nearby ground says how steep it is.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
-        float slope = Vector3.Angle(hit.normal, up);
+        float slope = collider ? Vector3.Angle(hit.normal, up) : 0;
         float gap = Clearance(template, placed, out Vessel nearest);
         bool clear = gap >= 0.5f;
 
@@ -307,17 +312,22 @@ public class PlacementTool : MonoBehaviour
     // False if the mouse isn't over a planet or moon.
     private bool PlaceOnMap(VesselTemplate template)
     {
-        // The planets in the map are spheres in scaled space, with colliders on their own layer.
+        // The map's planets are smooth and scaled down, so follow the same line at full size, hills and all.
         Ray ray = PlanetariumCamera.Camera.ScreenPointToRay(Input.mousePosition);
-        if (!Physics.Raycast(ray, out RaycastHit hit, float.MaxValue, 1 << 10, QueryTriggerInteraction.Ignore))
-            return false;
+        Vector3d origin = ScaledSpace.ScaledToLocalSpace(ray.origin);
+        CelestialBody hitBody = null;
+        double nearest = double.MaxValue;
+        foreach (CelestialBody body in FlightGlobals.Bodies)
+            if (Ground(body, origin, ray.direction, out double distance) && distance < nearest)
+            {
+                nearest = distance;
+                hitBody = body;
+            }
 
-        CelestialBody hitBody = FlightGlobals.Bodies.Find(body => body.scaledBody == hit.collider.gameObject);
         if (hitBody == null)
             return false;
 
-        Vector3d direction = (hit.point - hitBody.scaledBody.transform.position).normalized;
-        Vector3d surface = hitBody.position + direction * hitBody.Radius;
+        Vector3d surface = origin + (Vector3d)ray.direction * nearest;
         double latitude = hitBody.GetLatitude(surface);
         double longitude = hitBody.GetLongitude(surface);
 
@@ -407,19 +417,60 @@ public class PlacementTool : MonoBehaviour
         return Controller.body.Valid ? Controller.body.value : null;
     }
 
-    private static bool RaySphere(Ray ray, Vector3 centre, float radius, out float distance)
+    // Where a ray first meets a body's ground, the hills and valleys its colliders only cover close up. Steps along
+    // the ray through the heights the terrain reaches, then narrows in on where it went under. Water counts as ground.
+    private static bool Ground(CelestialBody body, Vector3d origin, Vector3d direction, out double distance)
     {
-        distance = 0;
-        Vector3 offset = ray.origin - centre;
-        float b = Vector3.Dot(offset, ray.direction);
-        float c = offset.sqrMagnitude - radius * radius;
-        float discriminant = b * b - c;
-
-        if (discriminant < 0)
+        PQS pqs = body.pqsController;
+        if (!RaySphere(origin - body.position, direction, pqs != null ? pqs.radiusMax : body.Radius, out distance, out double exit))
             return false;
 
-        distance = -b - Mathf.Sqrt(discriminant);
-        return distance > 0;
+        distance = Math.Max(distance, 0);
+        if (pqs == null)
+            return true;
+
+        // Nothing's lower than the lowest the terrain goes, so the ray is under it by then.
+        if (RaySphere(origin - body.position, direction, pqs.radiusMin, out double lowest, out _) && lowest > distance)
+            exit = lowest;
+
+        bool Under(double along)
+        {
+            Vector3d point = origin + direction * along;
+            return body.GetAltitude(point) < body.TerrainAltitude(body.GetLatitude(point), body.GetLongitude(point));
+        }
+
+        const int steps = 100;
+        double step = (exit - distance) / steps;
+        for (int i = 0; i < steps; i++, distance += step)
+        {
+            if (!Under(distance + step))
+                continue;
+
+            double over = distance, under = distance + step;
+            for (int j = 0; j < 20; j++)
+            {
+                double middle = (over + under) / 2;
+                if (Under(middle))
+                    under = middle;
+                else
+                    over = middle;
+            }
+
+            distance = under;
+            return true;
+        }
+
+        return false;
+    }
+
+    // Where a ray goes into a sphere and out again. False if it misses, or the sphere is behind it.
+    private static bool RaySphere(Vector3d offset, Vector3d direction, double radius, out double enter, out double exit)
+    {
+        double b = Vector3d.Dot(offset, direction);
+        double discriminant = b * b - offset.sqrMagnitude + radius * radius;
+        enter = -b - Math.Sqrt(Math.Max(discriminant, 0));
+        exit = -b + Math.Sqrt(Math.Max(discriminant, 0));
+        return discriminant >= 0 && exit > 0;
     }
 
     // The smallest gap between any of the vessels being placed and any loaded vessel, measured between
@@ -598,9 +649,8 @@ public class PlacementTool : MonoBehaviour
 
             // Hidden behind the planet?
             Vector3 toMarker = marker - camera.transform.position;
-            Ray ray = new Ray(camera.transform.position, toMarker);
             float radius = (float)(body.Radius * ScaledSpace.InverseScaleFactor);
-            if (RaySphere(ray, body.scaledBody.transform.position, radius * 0.995f, out float hit) && hit < toMarker.magnitude)
+            if (RaySphere(camera.transform.position - body.scaledBody.transform.position, toMarker.normalized, radius * 0.995f, out double hit, out _) && hit > 0 && hit < toMarker.magnitude)
                 continue;
 
             GUI.DrawTexture(new Rect(screen.x - 8, Screen.height - screen.y - 8, 16, 16), markerTexture);

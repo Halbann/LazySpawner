@@ -24,6 +24,7 @@ public class SpawnScreen : MonoBehaviour
 
     private readonly List<Action> refresh = new List<Action>();
     private RectTransform main, picker;
+    private GameObject notHere, content;
     private TMP_InputField search;
     private string listed;
     private float nextClipboardCheck;
@@ -62,8 +63,24 @@ public class SpawnScreen : MonoBehaviour
 
     protected void Update()
     {
+        // Otherwise typing "1" fires action group 1, and a space stages.
+        GameObject selected = EventSystem.current?.currentSelectedGameObject;
+        if (selected != null && selected.transform.IsChildOf(transform) && selected.GetComponent<TMP_InputField>()?.isFocused == true)
+            InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLock);
+        else
+            InputLockManager.RemoveControlLock(typingLock);
+
+        // Where it doesn't work, like the space centre, there's only a note to say so.
+        notHere.SetActive(C == null);
+        content.SetActive(C != null);
+        if (C == null)
+        {
+            ShowPicker(false);
+            return;
+        }
+
         // Copy a craft's path in another program, come back, and it's picked.
-        if (Time.unscaledTime > nextClipboardCheck && C != null)
+        if (Time.unscaledTime > nextClipboardCheck)
         {
             nextClipboardCheck = Time.unscaledTime + 0.5f;
             if (Controller.CheckClipboard() && picker.gameObject.activeSelf)
@@ -72,13 +89,6 @@ public class SpawnScreen : MonoBehaviour
 
         foreach (Action action in refresh)
             action();
-
-        // Otherwise typing "1" fires action group 1, and a space stages.
-        GameObject selected = EventSystem.current?.currentSelectedGameObject;
-        if (selected != null && selected.transform.IsChildOf(transform) && selected.GetComponent<TMP_InputField>()?.isFocused == true)
-            InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLock);
-        else
-            InputLockManager.RemoveControlLock(typingLock);
     }
 
     private RectTransform Page() =>
@@ -181,8 +191,9 @@ public class SpawnScreen : MonoBehaviour
 
     private void BuildMain(Transform page)
     {
-        Show(DebugUI.Paragraph(page, Loc("NotHere")), () => C == null);
-        Transform content = Panel(page, () => C != null);
+        notHere = DebugUI.Paragraph(page, Loc("NotHere")).gameObject;
+        Transform content = DebugUI.Column(page);
+        this.content = content.gameObject;
         const float half = (DebugUI.ControlWidth - 4) / 2;
 
         // Craft: its picture where the labels go, and what it is where the controls go.
@@ -201,7 +212,10 @@ public class SpawnScreen : MonoBehaviour
         aboutLayout.flexibleWidth = 1;
         aboutLayout.minWidth = DebugUI.ControlWidth;
         Text(DebugUI.Paragraph(about), CraftDescription);
-        Show(DebugUI.Button(DebugUI.Row(about), Loc("Craft_Change"), () => ShowPicker(true), DebugUI.ControlWidth), () => !Controller.InEditor);
+        Transform craftButtons = Show(DebugUI.Row(about), () => !Controller.InEditor);
+        DebugUI.Button(craftButtons, Loc("Craft_Change"), () => ShowPicker(true), half);
+        DebugUI.Tooltip(Show(DebugUI.Button(craftButtons, Loc("Craft_Edit"), () => Controller.OpenInEditor(Controller.SelectedCraft), half),
+            () => Controller.source == Controller.Source.Craft && Controller.SelectedCraft != null), Loc("Craft_Edit_Tooltip"));
         Field(content, Controller.count);
         DebugUI.Spacer(content, 10);
 
@@ -254,7 +268,7 @@ public class SpawnScreen : MonoBehaviour
         List<string> summary = new List<string>();
         refresh.Add(() => summary = Summary(out ready));
         Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Count > 0)),
-            () => string.Join("\n", summary.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>")));
+            () => string.Join("\n", summary.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>"))).paragraphSpacing = 12;
 
         DebugUI.Spacer(content, 8);
         Transform buttons = DebugUI.Row(content);
@@ -274,7 +288,7 @@ public class SpawnScreen : MonoBehaviour
         // What happened, with what can be done about it alongside.
         Transform result = DebugUI.Row(Show(DebugUI.Box(content), () => C.status != ""), 6);
         Text(DebugUI.Paragraph(result), () => C.statusIsError ? orange + C.status : C.status);
-        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => { if (Controller.InEditor) Controller.FlyFromEditor(LastSpawned()); else FlightGlobals.SetActiveVessel(LastSpawned().vesselRef); }, 80),
+        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => { if (Controller.InEditor) Controller.FlyFromEditor(LastSpawned()); else FlightGlobals.ForceSetActiveVessel(LastSpawned().vesselRef); }, 80),
             () => LastSpawned() != null && (Controller.InEditor || HighLogic.LoadedSceneIsFlight && LastSpawned().vesselRef != FlightGlobals.ActiveVessel));
         Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
         DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));
@@ -333,9 +347,6 @@ public class SpawnScreen : MonoBehaviour
 
     private string CraftDescription()
     {
-        if (C == null)
-            return "";
-
         if (Controller.InEditor)
         {
             ShipConstruct ship = EditorLogic.fetch.ship;
@@ -385,9 +396,6 @@ public class SpawnScreen : MonoBehaviour
     private List<string> Summary(out bool ready)
     {
         ready = false;
-        if (C == null)
-            return new List<string>();
-
         VesselTemplate template = C.Template(out Exception error);
         if (template == null)
             return Warnings(new[] { Controller.ShortMessage(error) });

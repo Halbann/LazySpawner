@@ -33,6 +33,7 @@ internal class Craft
     private List<string> missingParts;
 
     public int PartCount { get { Detail(); return partCount; } }
+    public EditorFacility Editor { get { Detail(); return facility == "SPH" ? EditorFacility.SPH : EditorFacility.VAB; } }
     public List<string> MissingParts { get { Detail(); return missingParts; } }
 
     private void Detail()
@@ -153,18 +154,14 @@ internal static class CraftList
         return known[path] = Create(path, modified);
     }
 
-    // A craft file from anywhere. Asked for every frame, so it doesn't look at the file again once it's
-    // known. Refreshing the list does.
+    // A craft file from anywhere, if it's still there. Asked for every frame, so once it's known it isn't read
+    // again. Refreshing the list does that.
     public static Craft Get(string path)
     {
-        if (string.IsNullOrEmpty(path))
+        if (string.IsNullOrEmpty(path) || !File.Exists(path = Path.GetFullPath(path)))
             return null;
 
-        path = Path.GetFullPath(path);
-        if (known.TryGetValue(path, out Craft craft))
-            return craft;
-
-        return File.Exists(path) ? known[path] = Create(path, File.GetLastWriteTime(path)) : null;
+        return known.TryGetValue(path, out Craft craft) ? craft : known[path] = Create(path, File.GetLastWriteTime(path));
     }
 
     // Where a craft is: the game's Ships/VAB/..., a save's saves/<save>/Ships/VAB/..., or anywhere else.
