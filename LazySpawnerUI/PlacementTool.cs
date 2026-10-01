@@ -245,7 +245,7 @@ public class PlacementTool : MonoBehaviour
         bool nearGround = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude <= 2000;
         bool collider = Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore);
         double distance = 0;
-        if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, out distance)))
+        if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
         {
             if (!nearGround)
                 return false;
@@ -318,7 +318,7 @@ public class PlacementTool : MonoBehaviour
         CelestialBody hitBody = null;
         double nearest = double.MaxValue;
         foreach (CelestialBody body in FlightGlobals.Bodies)
-            if (Ground(body, origin, ray.direction, out double distance) && distance < nearest)
+            if (Ground(body, origin, ray.direction, double.MaxValue, 10, out double distance) && distance < nearest)
             {
                 nearest = distance;
                 hitBody = body;
@@ -418,8 +418,10 @@ public class PlacementTool : MonoBehaviour
     }
 
     // Where a ray first meets a body's ground, the hills and valleys its colliders only cover close up. Steps along
-    // the ray through the heights the terrain reaches, then narrows in on where it went under. Water counts as ground.
-    private static bool Ground(CelestialBody body, Vector3d origin, Vector3d direction, out double distance)
+    // the ray through the heights the terrain reaches, then narrows in on where it went under by how high it was
+    // either side. Water counts as ground. Each height costs 10-50 µs, so the steps are as few as measured in game
+    // to rarely miss a hill.
+    private static bool Ground(CelestialBody body, Vector3d origin, Vector3d direction, double range, int steps, out double distance)
     {
         PQS pqs = body.pqsController;
         if (!RaySphere(origin - body.position, direction, pqs != null ? pqs.radiusMax : body.Radius, out distance, out double exit))
@@ -429,34 +431,37 @@ public class PlacementTool : MonoBehaviour
         if (pqs == null)
             return true;
 
-        // Nothing's lower than the lowest the terrain goes, so the ray is under it by then.
-        if (RaySphere(origin - body.position, direction, pqs.radiusMin, out double lowest, out _) && lowest > distance)
+        // Nothing's lower than the lowest the terrain goes, or the sea, so the ray is under it by then.
+        if (RaySphere(origin - body.position, direction, Math.Max(pqs.radiusMin, body.ocean ? body.Radius : 0), out double lowest, out _) && lowest > distance)
             exit = lowest;
 
-        bool Under(double along)
+        double Above(double along)
         {
             Vector3d point = origin + direction * along;
-            return body.GetAltitude(point) < body.TerrainAltitude(body.GetLatitude(point), body.GetLongitude(point));
+            return body.GetAltitude(point) - body.TerrainAltitude(body.GetLatitude(point), body.GetLongitude(point));
         }
 
-        const int steps = 100;
-        double step = (exit - distance) / steps;
-        for (int i = 0; i < steps; i++, distance += step)
+        double step = (Math.Min(exit, range) - distance) / steps, above = Above(distance);
+        for (int i = 0; i < steps && step > 0; i++, distance += step)
         {
-            if (!Under(distance + step))
-                continue;
-
-            double over = distance, under = distance + step;
-            for (int j = 0; j < 20; j++)
+            double next = Above(distance + step);
+            if (next > 0)
             {
-                double middle = (over + under) / 2;
-                if (Under(middle))
-                    under = middle;
-                else
-                    over = middle;
+                above = next;
+                continue;
             }
 
-            distance = under;
+            double over = distance, under = distance + step, below = next;
+            for (int j = 0; j < 3; j++)
+            {
+                double middle = over + (under - over) * above / (above - below), height = Above(middle);
+                if (height > 0)
+                    (over, above) = (middle, height);
+                else
+                    (under, below) = (middle, height);
+            }
+
+            distance = over + (under - over) * above / (above - below);
             return true;
         }
 
