@@ -4,10 +4,10 @@ It's a cheat, so it lives with the stock cheats: **Spawn Vessels**, under Cheats
 
 ### Craft
 
-- **Change…** lists every craft in the save and the game, newest first, with their thumbnails. Type to search. Crafts with missing parts are greyed out, with the missing parts in a tooltip.
-- **Craft from anywhere:** copy a .craft file's path, from Explorer or Everything, quotes and all, and come back to the game. It's picked up from the clipboard. Pasting a path into the search box works too. Crafts from elsewhere stay in the list once used.
+- **Change…** lists craft with their thumbnails: **Recent** ones you've picked or spawned from anywhere, **This Save**'s, **All Saves**', or the game's own **Stock** craft. Sort by **Newest** or **A–Z**. Search matches names, folders and saves, so "sph" finds the SPH's craft. Crafts with missing parts are greyed out, with the missing parts in a tooltip.
+- **Craft from anywhere:** copy a .craft file's path, from Explorer or Everything, quotes and all, and come back to the game. It's picked up from the clipboard, and stays in Recent. Pasting a path into the search box works too.
 - **Cloning:** the top of the list copies the active vessel, or the selected vessel in the Tracking Station.
-- **Stock…** picks with the stock craft browser instead.
+- **Browse…** picks with the stock craft browser instead.
 - **Count** spawns as many copies as you like. Big batches are spread over several frames, so the game doesn't freeze.
 
 ### Situation

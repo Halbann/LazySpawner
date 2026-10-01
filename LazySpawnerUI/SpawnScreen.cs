@@ -28,8 +28,6 @@ public class SpawnScreen : MonoBehaviour
     private string listed;
     private float nextClipboardCheck;
 
-    private enum Filter { All, VAB, SPH }
-    private static readonly Setting<Filter> filter = Filter.All;
 
     private const string typingLock = "LazySpawnerTyping";
     private const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
@@ -352,7 +350,14 @@ public class SpawnScreen : MonoBehaviour
     private static string Describe(Craft craft) =>
         $"<b>{craft.DisplayName}</b>\n" + (craft.MissingParts.Count > 0
             ? orange + Loc("MissingParts", craft.MissingParts.Count, string.Join(", ", craft.MissingParts.Take(3)) + (craft.MissingParts.Count > 3 ? "…" : ""))
-            : grey + Loc("Craft_Details", craft.elsewhere ? Loc("Craft_Elsewhere") : craft.facility, craft.PartCount, Ago(craft.modified)));
+            : grey + Loc("Craft_Details", Location(craft), craft.PartCount, Ago(craft.modified)));
+
+    // VAB\Drones, and whose it is when it's not this save's.
+    private static string Location(Craft craft) =>
+        craft.Elsewhere ? Loc("Craft_Elsewhere")
+        : craft.save == null ? $"{craft.folder} · {Loc("Craft_Stock")}"
+        : craft.save != HighLogic.SaveFolder ? $"{craft.folder} · {craft.save}"
+        : craft.folder;
 
     private static string Ago(DateTime time)
     {
@@ -539,10 +544,17 @@ public class SpawnScreen : MonoBehaviour
         Transform top = DebugUI.Row(page);
         search = DebugUI.Field(top, "", _ => { }, -1);
         search.placeholder.GetComponent<TextMeshProUGUI>().text = Loc("Picker_Search");
-        DebugUI.Tooltip(DebugUI.Button(top, Loc("Picker_Stock"), () => { ShowPicker(false); C.StartCoroutine(C.StockCraftBrowser()); }, 60), Loc("Picker_Stock_Tooltip"));
+        DebugUI.Tooltip(search, Loc("Picker_Search_Tooltip"));
+
+        // Says the order it's in, and switches to the other. Recent craft are always in the order they were used.
+        Button sort = Show(DebugUI.Button(top, "", () => CraftList.order.Value = CraftList.order == CraftList.Order.Newest ? CraftList.Order.Name : CraftList.Order.Newest, 60),
+            () => CraftList.source != CraftList.Source.Recent);
+        Text(sort.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(CraftList.order == CraftList.Order.Newest ? "Picker_Newest" : "Picker_Name"));
+
+        DebugUI.Tooltip(DebugUI.Button(top, Loc("Picker_Browse"), () => { ShowPicker(false); C.StartCoroutine(C.StockCraftBrowser()); }, 70), Loc("Picker_Browse_Tooltip"));
         DebugUI.Button(top, Loc("Picker_Back"), () => ShowPicker(false), 50);
 
-        Tabs(page, filter, Loc("Picker_All"), "VAB", "SPH");
+        Tabs(page, CraftList.source, Loc("Picker_Recent"), Loc("Picker_ThisSave"), Loc("Picker_AllSaves"), Loc("Picker_Stock"));
 
         // Only the rows in view exist. They move and change as the list scrolls, so however many craft
         // there are, the list opens and filters without making hundreds of UI objects.
@@ -553,7 +565,7 @@ public class SpawnScreen : MonoBehaviour
             if (!picker.gameObject.activeSelf)
                 return;
 
-            string key = $"{search.text}|{filter.Value}|{Controller.CloneSource()?.id}|{CraftList.All.Count}";
+            string key = $"{search.text}|{CraftList.source.Value}|{CraftList.order.Value}|{Controller.CloneSource()?.id}|{CraftList.List.Count}";
             if (key != listed)
             {
                 listed = key;
@@ -579,13 +591,15 @@ public class SpawnScreen : MonoBehaviour
             if (original != null && !original.isEVA && search.text == "")
                 entries.Add(new Entry { text = $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Picker_CopyActive" : "Picker_CopySelected"), pick = () => Controller.source.Value = Controller.Source.Clone });
 
+            // Every word, in the name or where it is, so "sph" finds the SPH's craft and a save's name finds that save's.
             string[] words = search.text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (Craft craft in CraftList.All)
-                if ((filter == Filter.All || craft.facility == filter.Value.ToString()) && words.All(w => craft.DisplayName.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
+            foreach (Craft craft in CraftList.List)
+                if (words.All(w => craft.SearchText.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
                     entries.Add(new Entry { craft = craft, pick = () => Controller.Select(craft) });
         }
 
         scroll.content.sizeDelta = new Vector2(0, entries.Count * rowHeight);
+        scroll.verticalNormalizedPosition = 1;
     }
 
     private void ShowRows()
