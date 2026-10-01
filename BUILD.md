@@ -4,7 +4,7 @@
 2. Set a `KSP_ROOT` environment variable to your KSP folder (the one with `KSP_x64.exe`).
 3. Build: open `LazySpawner.slnx`, or run `dotnet build LazySpawner.slnx`.
 
-Building copies `GameData/LazySpawner` into your KSP install's GameData.
+Debug builds copy `GameData/LazySpawner` into your KSP install's GameData. Release builds don't.
 
 There are two projects: `LazySpawner` is the backend other mods can use, and `LazySpawnerUI` is the window and placement tool, which uses the backend like any other mod would. Settings shared by both are in `Directory.Build.props`.
 
