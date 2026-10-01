@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using UnityEngine;
 
 namespace LazySpawner;
@@ -193,14 +192,7 @@ internal class CraftParser
 
         // There were modded or DLC parts that aren't available.
         if (missingParts.Count > 0)
-        {
-            StringBuilder sb = new StringBuilder();
-
-            foreach (string missingPartName in missingParts)
-                sb.Append(missingPartName).Append("\n");
-
-            throw new MissingPartsException(Localizer.Format("#autoLOC_6002425", Localizer.Format(shipName), sb.ToString()), missingParts);
-        }
+            throw new MissingPartsException(Localizer.Format("#autoLOC_6002425", Localizer.Format(shipName), string.Concat(missingParts.Select(p => p + "\n"))), missingParts);
 
         if (parts.Count == 0)
             throw LoadingError("Error_NoParts", shipName);
@@ -427,16 +419,8 @@ internal class CraftParser
         template.LandedBounds = landed;
     }
 
-    private static Bounds Transform(Bounds bounds, Quaternion rotation)
-    {
-        Vector3 min = bounds.min, max = bounds.max;
-        Bounds result = new Bounds(rotation * bounds.center, Vector3.zero);
-
-        for (int i = 0; i < 8; i++)
-            result.Encapsulate(rotation * new Vector3((i & 1) == 0 ? min.x : max.x, (i & 2) == 0 ? min.y : max.y, (i & 4) == 0 ? min.z : max.z));
-
-        return result;
-    }
+    private static Bounds Transform(Bounds bounds, Quaternion rotation) =>
+        VesselBounds.Enclose(VesselBounds.Corners(bounds).Select(corner => rotation * corner));
 
     #endregion
 
@@ -480,10 +464,9 @@ internal class CraftParser
         vesselNode.AddValue("PQSMax", 0);
         vesselNode.AddValue("GroupOverride", 0);
 
-        CopyValue(craftNode, vesselNode, "OverrideDefault");
-        CopyValue(craftNode, vesselNode, "OverrideActionControl");
-        CopyValue(craftNode, vesselNode, "OverrideAxisControl");
-        CopyValue(craftNode, vesselNode, "OverrideGroupNames");
+        foreach (string copied in new[] { "OverrideDefault", "OverrideActionControl", "OverrideAxisControl", "OverrideGroupNames" })
+            if (craftNode.GetValue(copied) is string value)
+                vesselNode.AddValue(copied, value);
 
         vesselNode.AddValue("altDispState", AltimeterDisplayState.DEFAULT);
 
@@ -501,13 +484,6 @@ internal class CraftParser
         discovery.AddValue("size", (int)UntrackedObjectClass.C);
     }
 
-    private static void CopyValue(ConfigNode from, ConfigNode to, string name)
-    {
-        string value = from.GetValue(name);
-        if (value != null)
-            to.AddValue(name, value);
-    }
-
     #endregion
 }
 
@@ -518,6 +494,8 @@ public class MissingPartsException : SpawnException
     public MissingPartsException(string message, IEnumerable<string> missingParts) : base(Localizer.Format("#autoLOC_6002424"), message) =>
         this.missingParts = missingParts.ToList();
 
-    public string ShortMessage =>
+    public string ShortMessage => Short(missingParts);
+
+    public static string Short(List<string> missingParts) =>
         Loc("MissingParts", missingParts.Count, string.Join(", ", missingParts.Take(3)) + (missingParts.Count > 3 ? "…" : ""));
 }

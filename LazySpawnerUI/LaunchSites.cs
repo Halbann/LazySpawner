@@ -53,15 +53,7 @@ internal static class LaunchSites
             return;
 
         // Spawn points face the way vessels should, like along the runway.
-        Vector3 up = body.GetSurfaceNVector(latitude, longitude);
-        Vector3 north = Placement.SurfaceFrame(body, latitude, longitude, 0) * Vector3.forward;
-        Vector3 east = Placement.SurfaceFrame(body, latitude, longitude, 90) * Vector3.forward;
-        float Heading(Vector3 direction)
-        {
-            Vector3 flat = Vector3.ProjectOnPlane(direction, up);
-            return flat.sqrMagnitude < 1e-4f ? 0 : (Mathf.Atan2(Vector3.Dot(flat, east), Vector3.Dot(flat, north)) * Mathf.Rad2Deg + 360) % 360;
-        }
-
-        sites.Add(new Site { name = name, body = body, latitude = latitude, longitude = longitude, heading = spawn != null ? Mathf.Round(Heading(spawn.forward)) : 90 });
+        float heading = spawn != null ? Mathf.Round(Placement.Heading(body, latitude, longitude, spawn.forward)) : 90;
+        sites.Add(new Site { name = name, body = body, latitude = latitude, longitude = longitude, heading = heading });
     }
 }

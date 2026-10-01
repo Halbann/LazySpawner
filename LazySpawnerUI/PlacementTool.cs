@@ -111,7 +111,7 @@ public class PlacementTool : MonoBehaviour
                 return;
             }
 
-            VesselTemplate template = gui.PreviewTemplate();
+            VesselTemplate template = gui.Template(out _);
             if (template == null)
             {
                 Stop();
@@ -220,7 +220,7 @@ public class PlacementTool : MonoBehaviour
         // Spawn on click, unless the click was for some UI.
         if (Input.GetMouseButtonDown(0) && placeValid && !MouseOverUI())
         {
-            gui.SpawnAt(placed);
+            gui.Spawn(placed);
 
             if (!Input.GetKey(KeyCode.LeftControl) && !Input.GetKey(KeyCode.RightControl))
                 Finish();
@@ -251,7 +251,7 @@ public class PlacementTool : MonoBehaviour
         CelestialBody body = active.mainBody;
         body.GetLatLonAlt(hit.point, out double latitude, out double longitude, out _);
 
-        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, Controller.randomRotation);
+        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation);
 
         // Steep ground tips things over, and overlapping vessels explode.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
@@ -261,7 +261,7 @@ public class PlacementTool : MonoBehaviour
 
         placeValid = slope < 30 && clear;
         placeInfo = $"{template.DisplayName} · {HeadingText}" +
-            (nearest != null && clear ? " · " + Loc("Placing_Clear", FormatDistance(gap), nearest.GetDisplayName()) : "") +
+            (nearest != null && clear ? " · " + Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : "") +
             (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
             (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
         return true;
@@ -293,17 +293,14 @@ public class PlacementTool : MonoBehaviour
         Quaternion frame = Quaternion.LookRotation(prograde, up.sqrMagnitude > 1e-4f ? up : point - (Vector3)active.mainBody.position);
         Quaternion rotation = frame * spaceTurn * Quaternion.LookRotation(Vector3.down, Vector3.forward);
 
-        placed = new List<SpawnSituation>();
-        int number = Controller.count.Valid ? Controller.count.value : 1;
-        for (int i = 0; i < number; i++)
-            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation), rotation));
+        placed = Cluster(orbit, template, rotation);
 
         // Measured between the vessels' boxes, not their centres.
         float gap = Clearance(template, placed, out Vessel nearest);
 
         placeValid = gap >= 1f;
         placeInfo = $"{template.DisplayName} · " +
-            (nearest == null ? "" : placeValid ? Loc("Placing_Clear", FormatDistance(gap), nearest.GetDisplayName()) : $"{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
+            (nearest == null ? "" : placeValid ? Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : $"{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
         return Kind.Space;
     }
 
@@ -350,7 +347,7 @@ public class PlacementTool : MonoBehaviour
             return true;
         }
 
-        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Controller.count.Valid ? Controller.count.value : 1, Controller.randomRotation);
+        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Number, Controller.randomRotation);
         placeValid = true;
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
@@ -404,14 +401,11 @@ public class PlacementTool : MonoBehaviour
         Orbit orbit = Placement.OrbitFromWorldState(body, body.position + radial, prograde * speed, UT);
 
         // Together where you click. Spreading them around the orbit is for the Orbit mode.
-        int number = Controller.count.Valid ? Controller.count.value : 1;
-        placed = new List<SpawnSituation>();
-        for (int i = 0; i < number; i++)
-            placed.Add(SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation)));
+        placed = Cluster(orbit, template);
 
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
-        placeInfo = $"{template.DisplayName} · {name} · {Loc("Placing_Altitude", FormatDistance((float)altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
+        placeInfo = $"{template.DisplayName} · {name} · {Loc("Placing_Altitude", Distance(altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
             (inAtmosphere ? $"\n{red}{Loc("Placing_InAtmosphere")}</color>" : "");
         return Kind.MapOrbit;
     }
@@ -479,8 +473,14 @@ public class PlacementTool : MonoBehaviour
     private static bool MouseOverUI() =>
         EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
 
-    private static string FormatDistance(float metres) =>
-        metres < 1000 ? $"{metres:F0} m" : $"{metres / 1000:F2} km";
+    internal static string Distance(double metres) =>
+        Math.Abs(metres) < 10000 ? $"{metres:0} m" : $"{metres / 1000:0.#} km";
+
+    private static int Number => Controller.count.Valid ? Controller.count.value : 1;
+
+    // Together, in a tidy cluster around the orbit's position.
+    private static List<SpawnSituation> Cluster(Orbit orbit, VesselTemplate template, Quaternion? rotation = null) =>
+        Enumerable.Range(0, Number).Select(i => SpawnSituation.Orbiting(Formations.Cluster(orbit, template, i, Controller.randomRotation), rotation)).ToList();
 
     #endregion
 

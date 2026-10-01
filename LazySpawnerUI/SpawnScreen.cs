@@ -248,20 +248,13 @@ public class SpawnScreen : MonoBehaviour
         Toggle(content, Loc("Crew_AlwaysHire"), Controller.onlyNewKerbals, Loc("Crew_AlwaysHire_Tooltip"), () => Controller.crewMode != CrewMode.None);
         DebugUI.Spacer(content, 10);
 
-        // What happens, set apart as a list, and the buttons that make it happen.
+        // What happens, set apart as a list, and the buttons that make it happen. Warnings have orange bullets,
+        // and the closing tags keep their colour from running on.
         bool ready = false;
         List<string> summary = new List<string>();
         refresh.Add(() => summary = Summary(out ready));
-
-        Transform box = Show(DebugUI.Box(content), () => summary.Count > 0);
-        for (int i = 0; i < 6; i++)
-        {
-            int line = i;
-            Transform row = Show(DebugUI.Row(box), () => line < summary.Count);
-            row.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.UpperLeft;
-            Text(DebugUI.Label(row, "", 14), () => line < summary.Count && summary[line].StartsWith(orange) ? orange + "•" : "•");
-            Text(DebugUI.Paragraph(row), () => line < summary.Count ? summary[line] : "");
-        }
+        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Count > 0)),
+            () => string.Join("\n", summary.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>")));
 
         DebugUI.Spacer(content, 8);
         Transform buttons = DebugUI.Row(content);
@@ -363,7 +356,7 @@ public class SpawnScreen : MonoBehaviour
 
     private static string Describe(Craft craft) =>
         $"<b>{craft.DisplayName}</b>\n" + (craft.MissingParts.Count > 0
-            ? orange + Loc("MissingParts", craft.MissingParts.Count, string.Join(", ", craft.MissingParts.Take(3)) + (craft.MissingParts.Count > 3 ? "…" : ""))
+            ? orange + MissingPartsException.Short(craft.MissingParts)
             : grey + Loc("Craft_Details", Location(craft), craft.PartCount, Ago(craft.modified)));
 
     // VAB\Drones, and whose it is when it's not this save's.
@@ -395,9 +388,9 @@ public class SpawnScreen : MonoBehaviour
         if (C == null)
             return new List<string>();
 
-        VesselTemplate template = C.PreviewTemplate(out string error);
+        VesselTemplate template = C.Template(out Exception error);
         if (template == null)
-            return Warnings(new[] { error ?? "" });
+            return Warnings(new[] { Controller.ShortMessage(error) });
 
         List<string> problems = new List<string>(), warnings = new List<string>();
         ITextField[] fields = Controller.situationMode.Value switch
@@ -487,14 +480,11 @@ public class SpawnScreen : MonoBehaviour
                 if (!Controller.advancedOrbit)
                     return null;
 
-                return orbit.eccentricity >= 1 ? Loc("Summary_Escaping", bodyName, Distance(orbit.PeA))
-                    : orbit.eccentricity < 0.001 ? Loc("Summary_Circular", Distance(orbit.PeA))
-                    : Loc("Summary_Elliptical", Distance(orbit.PeA), Distance(orbit.ApA));
+                return orbit.eccentricity >= 1 ? Loc("Summary_Escaping", bodyName, PlacementTool.Distance(orbit.PeA))
+                    : orbit.eccentricity < 0.001 ? Loc("Summary_Circular", PlacementTool.Distance(orbit.PeA))
+                    : Loc("Summary_Elliptical", PlacementTool.Distance(orbit.PeA), PlacementTool.Distance(orbit.ApA));
         }
     }
-
-    private static string Distance(double metres) =>
-        Math.Abs(metres) < 10000 ? $"{metres:0} m" : $"{metres / 1000:0.#} km";
 
     private static string Crew(VesselTemplate template, int number)
     {

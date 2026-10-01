@@ -212,46 +212,22 @@ public static class Spawner
 
     #region Robotics
 
+    private static IEnumerable<ConfigNode> Modules(ConfigNode vesselNode, string name) =>
+        vesselNode.GetNodes("PART").SelectMany(part => part.GetNodes("MODULE")).Where(module => module.GetValue("name") == name);
+
     // Robotics controllers reference the parts they control by persistent ID.
     private static void UpdateRoboticsReferences(ConfigNode vesselNode, Dictionary<uint, uint> changedPIDs)
     {
-        if (changedPIDs.Count < 1)
-            return;
-
-        foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
-        {
-            foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+        foreach (ConfigNode module in Modules(vesselNode, "ModuleRoboticController"))
+            foreach (ConfigNode actionOrAxis in new[] { "CONTROLLEDAXES", "CONTROLLEDACTIONS" }.SelectMany(list => module.GetNode(list)?.GetNodes() ?? new ConfigNode[0]))
             {
-                if (moduleNode.GetValue("name") != "ModuleRoboticController")
-                    continue;
+                IEnumerable<ConfigNode.Value> ids = actionOrAxis.values.Cast<ConfigNode.Value>().Where(v => v.name == "persistentId").Take(1)
+                    .Concat((actionOrAxis.GetNode("SYMPARTS")?.values ?? new ConfigNode.ValueList()).Cast<ConfigNode.Value>().Where(v => v.name == "symPersistentId"));
 
-                foreach (string listName in new[] { "CONTROLLEDAXES", "CONTROLLEDACTIONS" })
-                {
-                    ConfigNode list = moduleNode.GetNode(listName);
-                    if (list == null)
-                        continue;
-
-                    foreach (ConfigNode actionOrAxis in list.nodes)
-                    {
-                        UpdatePidValue(actionOrAxis.values.Cast<ConfigNode.Value>().FirstOrDefault(v => v.name == "persistentId"), changedPIDs);
-
-                        ConfigNode symmetryNode = actionOrAxis.GetNode("SYMPARTS");
-                        if (symmetryNode == null)
-                            continue;
-
-                        foreach (ConfigNode.Value entry in symmetryNode.values)
-                            if (entry.name == "symPersistentId")
-                                UpdatePidValue(entry, changedPIDs);
-                    }
-                }
+                foreach (ConfigNode.Value id in ids)
+                    if (uint.TryParse(id.value, out uint originalPID) && changedPIDs.TryGetValue(originalPID, out uint newPID))
+                        id.value = newPID.ToString();
             }
-        }
-    }
-
-    private static void UpdatePidValue(ConfigNode.Value value, Dictionary<uint, uint> changedPIDs)
-    {
-        if (value != null && uint.TryParse(value.value, out uint originalPID) && changedPIDs.TryGetValue(originalPID, out uint newPID))
-            value.value = newPID.ToString();
     }
 
     #endregion
@@ -261,26 +237,15 @@ public static class Spawner
     // The same as the stock mission spawner's "brakes on" option.
     private static void SetBrakes(ConfigNode vesselNode)
     {
-        bool hasBrakes = false;
-
-        foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
-        {
-            foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
-            {
-                if (moduleNode.GetValue("name") != "ModuleWheelBrakes")
-                    continue;
-
-                // Persisted, so it overrides the action group when the wheel starts.
-                moduleNode.SetValue("brakeInput", 1, true);
-                hasBrakes = true;
-            }
-        }
-
-        if (!hasBrakes)
+        List<ConfigNode> brakes = Modules(vesselNode, "ModuleWheelBrakes").ToList();
+        if (brakes.Count == 0)
             return;
 
-        ConfigNode actionGroups = vesselNode.GetNode("ACTIONGROUPS") ?? vesselNode.AddNode("ACTIONGROUPS");
-        actionGroups.SetValue(nameof(KSPActionGroup.Brakes), "True, 0", true);
+        // Persisted, so it overrides the action group when the wheel starts.
+        foreach (ConfigNode module in brakes)
+            module.SetValue("brakeInput", 1, true);
+
+        (vesselNode.GetNode("ACTIONGROUPS") ?? vesselNode.AddNode("ACTIONGROUPS")).SetValue(nameof(KSPActionGroup.Brakes), "True, 0", true);
     }
 
     #endregion
@@ -375,37 +340,19 @@ public static class Spawner
 
         Quaternion referenceRelative = ReferencePart(protoVessel)?.rotation ?? Quaternion.identity;
         (Vector3d position, Quaternion rotation) = GetPose(template, situation, referenceRelative, out double height, out bool splashed);
+        bool landed = situation.landed;
 
-        if (situation.landed)
-        {
-            protoVessel.latitude = situation.latitude;
-            protoVessel.longitude = situation.longitude;
-            protoVessel.altitude = body.GetAltitude(position);
-            protoVessel.height = (float)height;
-            protoVessel.normal = Quaternion.Inverse(rotation) * body.GetSurfaceNVector(situation.latitude, situation.longitude);
+        body.GetLatLonAlt(position, out protoVessel.latitude, out protoVessel.longitude, out protoVessel.altitude);
+        protoVessel.height = (float)height;
+        protoVessel.normal = landed ? Quaternion.Inverse(rotation) * body.GetSurfaceNVector(situation.latitude, situation.longitude) : Vector3.up;
+        protoVessel.situation = !landed ? Placement.OrbitSituation(situation.orbit) : splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
+        protoVessel.landed = landed && !splashed;
+        protoVessel.splashed = splashed;
+        protoVessel.skipGroundPositioning = splashed;
+        protoVessel.vesselSpawning = landed;
 
-            protoVessel.situation = splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
-            protoVessel.landed = !splashed;
-            protoVessel.splashed = splashed;
-            protoVessel.skipGroundPositioning = splashed;
-            protoVessel.vesselSpawning = true;
-
-            // Landed vessels still have an orbit, which is just the ground moving under them.
-            protoVessel.orbitSnapShot = new OrbitSnapshot(Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT));
-        }
-        else
-        {
-            body.GetLatLonAlt(position, out protoVessel.latitude, out protoVessel.longitude, out protoVessel.altitude);
-
-            protoVessel.height = -1;
-            protoVessel.normal = Vector3.up;
-            protoVessel.situation = Placement.OrbitSituation(situation.orbit);
-            protoVessel.landed = false;
-            protoVessel.splashed = false;
-            protoVessel.skipGroundPositioning = false;
-            protoVessel.vesselSpawning = false;
-            protoVessel.orbitSnapShot = new OrbitSnapshot(situation.orbit);
-        }
+        // Landed vessels still have an orbit, which is just the ground moving under them.
+        protoVessel.orbitSnapShot = new OrbitSnapshot(landed ? Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT) : situation.orbit);
 
         // Unloaded vessels keep their rotation relative to the body.
         protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * rotation;
@@ -620,28 +567,16 @@ public static class Spawner
     // Create the initial log entry that would otherwise be missing.
     private static void CreateLogEntry(ProtoCrewMember crewMember, SpawnSituation situation)
     {
-        FlightLog.EntryType entryType;
-
-        if (situation.landed)
-            entryType = FlightLog.EntryType.Land;
-        else
+        CelestialBody body = situation.body;
+        FlightLog.EntryType entryType = situation.landed ? FlightLog.EntryType.Land : Placement.OrbitSituation(situation.orbit) switch
         {
-            switch (Placement.OrbitSituation(situation.orbit))
-            {
-                case Vessel.Situations.SUB_ORBITAL:
-                    entryType = situation.body.atmosphere && situation.orbit.PeA < situation.body.atmosphereDepth && situation.orbit.ApA < situation.body.atmosphereDepth
-                        ? FlightLog.EntryType.Flight : FlightLog.EntryType.Suborbit;
-                    break;
-                case Vessel.Situations.ESCAPING:
-                    entryType = FlightLog.EntryType.Escape;
-                    break;
-                default:
-                    entryType = FlightLog.EntryType.Orbit;
-                    break;
-            }
-        }
+            Vessel.Situations.ESCAPING => FlightLog.EntryType.Escape,
+            Vessel.Situations.SUB_ORBITAL when body.atmosphere && situation.orbit.ApA < body.atmosphereDepth => FlightLog.EntryType.Flight,
+            Vessel.Situations.SUB_ORBITAL => FlightLog.EntryType.Suborbit,
+            _ => FlightLog.EntryType.Orbit,
+        };
 
-        crewMember.flightLog?.AddEntryUnique(entryType, situation.body.name);
+        crewMember.flightLog?.AddEntryUnique(entryType, body.name);
     }
 
     #endregion

@@ -224,32 +224,48 @@ public class Controller : MonoBehaviour
 
     #region Spawning
 
-    internal void Spawn()
+    // Spawn at the places picked, or where the screen says. Placed vessels face the default way while
+    // they're previewed, so they're turned at random last.
+    internal void Spawn(List<SpawnSituation> placed = null)
     {
-        if (spawnRoutine == null)
-            spawnRoutine = StartCoroutine(SpawnRoutine());
+        if (spawnRoutine != null)
+            return;
+
+        if (placed != null && randomRotation)
+            foreach (SpawnSituation situation in placed)
+            {
+                if (situation.landed)
+                    situation.heading = Random.Range(0f, 360f);
+                else
+                    situation.rotation = Random.rotation;
+            }
+
+        spawnRoutine = StartCoroutine(SpawnRoutine(placed));
     }
 
-    private IEnumerator SpawnRoutine() =>
-        SpawnRoutine(null);
-
-    // Spawn at the given situations, or the ones the screen describes.
     private IEnumerator SpawnRoutine(List<SpawnSituation> situations)
     {
         status = "";
         statusIsError = false;
         lastSpawned.Clear();
 
-        VesselTemplate template;
+        if (source == Source.Craft && !InEditor)
+            CraftList.Remember(SelectedCraft);
 
+        VesselTemplate template = Template(out Exception error, fresh: true);
         try
         {
-            template = CreateTemplate();
-            situations ??= CreateSituations(template, count, false);
+            if (template != null)
+                situations ??= CreateSituations(template, count, false);
         }
         catch (Exception e)
         {
-            ShowError(e);
+            error = e;
+        }
+
+        if (error != null)
+        {
+            ShowError(error);
             spawnRoutine = null;
             yield break;
         }
@@ -295,36 +311,25 @@ public class Controller : MonoBehaviour
         statusIsError = false;
     }
 
-    private VesselTemplate CreateTemplate()
-    {
-        if (InEditor)
-            return EditorTemplate();
+    // The craft being edited as it is now, saved or not, the vessel to clone, or the craft picked.
+    private static VesselTemplate CreateTemplate() =>
+        InEditor ? VesselTemplate.FromCraft(EditorLogic.fetch.ship.SaveShip())
+        : source == Source.Clone ? VesselTemplate.FromVessel(CloneSource() ?? throw new SpawnException(Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel")))
+        : VesselTemplate.FromCraft(SelectedCraft?.path ?? throw new SpawnException(Loc("Craft_Choose")));
 
-        if (source == Source.Clone)
-            return VesselTemplate.FromVessel(CloneSource());
+    // The first line, for the status and the summary. A long message would make them too tall.
+    internal static string ShortMessage(Exception e) =>
+        e is MissingPartsException missing ? missing.ShortMessage : e.Message.Split('\n')[0].TrimEnd(':', ' ');
 
-        CraftList.Remember(SelectedCraft);
-        return VesselTemplate.FromCraft(craftPath.Value);
-    }
-
-    // The craft being edited, as it is now, saved or not.
-    private static VesselTemplate EditorTemplate() => VesselTemplate.FromCraft(EditorLogic.fetch.ship.SaveShip());
-
+    // The popup has the whole message.
     private void ShowError(Exception e)
     {
-        string title = Loc("Error_Title");
-        string message = e.Message;
-
-        if (e is SpawnException spawnException)
-            title = spawnException.title;
-        else
+        if (e is not SpawnException)
             UnityEngine.Debug.LogException(e);
 
-        // The popup has the whole message. A long one would make the status too tall.
-        status = e is MissingPartsException missing ? missing.ShortMessage : message.Split('\n')[0].TrimEnd(':', ' ');
+        status = ShortMessage(e);
         statusIsError = true;
-
-        PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", title, message, KSP.Localization.Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
+        PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", (e as SpawnException)?.title ?? Loc("Error_Title"), e.Message, KSP.Localization.Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
     }
 
     // Previews can't be random, or they'd jump about every frame.
@@ -390,70 +395,33 @@ public class Controller : MonoBehaviour
 
     #region Placement
 
-    // Previews use a cached template, rebuilt when the craft file or vessel changes.
-    // The key and template live together so that a hot reload resets both, not just the template.
-    private class PreviewCache
-    {
-        public string key;
-        public VesselTemplate template;
-        public string error;
-    }
-
-    private PreviewCache previewCache;
-
     // The template for the selected craft or vessel, or null with the reason it can't be spawned.
-    internal VesselTemplate PreviewTemplate() => PreviewTemplate(out _);
+    // Previews keep it until the craft file or vessel changes. Spawning makes it afresh, so clones are up to date.
+    private (string key, VesselTemplate template, Exception error) cached;
 
-    internal VesselTemplate PreviewTemplate(out string error)
+    internal VesselTemplate Template(out Exception error, bool fresh = false)
     {
-        string key;
-        Vessel original = null;
+        Vessel original = CloneSource();
+        Craft craft = SelectedCraft;
+        string key = InEditor ? $"editor {editorChanges} {EditorLogic.fetch.ship.parts.Count} {EditorLogic.fetch.ship.shipName}"
+            : source == Source.Clone ? $"clone {original?.id} {(original == null ? 0 : original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}"
+            : $"craft {craft?.path} {(craft == null ? 0 : File.GetLastWriteTimeUtc(craft.path).Ticks)}";
 
-        if (InEditor)
-            key = $"editor {editorChanges} {EditorLogic.fetch.ship.parts.Count} {EditorLogic.fetch.ship.shipName}";
-        else if (source == Source.Craft)
+        if (fresh || cached.key != key)
         {
-            Craft craft = SelectedCraft;
-            if (craft == null)
-            {
-                error = Loc("Craft_Choose");
-                return null;
-            }
-
-            key = craft.path + File.GetLastWriteTimeUtc(craft.path).Ticks;
-        }
-        else
-        {
-            original = CloneSource();
-            if (original == null)
-            {
-                error = Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel");
-                return null;
-            }
-
-            key = $"{original.id}:{(original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}";
-        }
-
-        if (previewCache?.key != key)
-        {
-            previewCache = new PreviewCache { key = key };
-
+            cached = (key, null, null);
             try
             {
-                previewCache.template = InEditor ? EditorTemplate() : original != null ? VesselTemplate.FromVessel(original) : VesselTemplate.FromCraft(craftPath.Value);
-            }
-            catch (MissingPartsException e)
-            {
-                previewCache.error = e.ShortMessage;
+                cached.template = CreateTemplate();
             }
             catch (Exception e)
             {
-                previewCache.error = e.Message.Split('\n')[0];
+                cached.error = e;
             }
         }
 
-        error = previewCache.error;
-        return previewCache.template;
+        error = cached.error;
+        return cached.template;
     }
 
     internal List<SpawnSituation> PreviewSituations(VesselTemplate template)
@@ -469,22 +437,6 @@ public class Controller : MonoBehaviour
         {
             return null;
         }
-    }
-
-    // Previews face the default way. Randomness comes last, so the preview doesn't jump about.
-    internal void SpawnAt(List<SpawnSituation> situations)
-    {
-        if (randomRotation)
-            foreach (SpawnSituation situation in situations)
-            {
-                if (situation.landed)
-                    situation.heading = Random.Range(0f, 360f);
-                else
-                    situation.rotation = Random.rotation;
-            }
-
-        if (spawnRoutine == null)
-            spawnRoutine = StartCoroutine(SpawnRoutine(situations));
     }
 
     // Describe an orbit in the advanced orbit fields.

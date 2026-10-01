@@ -72,22 +72,23 @@ public static class Placement
         return north.normalized;
     }
 
+    // Degrees clockwise from north, of a direction seen from above.
+    public static float Heading(CelestialBody body, double latitude, double longitude, Vector3 direction)
+    {
+        Vector3 north = SurfaceFrame(body, latitude, longitude, 0) * Vector3.forward;
+        Vector3 east = SurfaceFrame(body, latitude, longitude, 90) * Vector3.forward;
+        return (Mathf.Atan2(Vector3.Dot(direction, east), Vector3.Dot(direction, north)) * Mathf.Rad2Deg + 360) % 360;
+    }
+
+    // Where the vessel's nose points, or its belly if the nose points straight up, like a rocket's.
     public static float Heading(Vessel vessel)
     {
         if (vessel == null || vessel.ReferenceTransform == null)
             return 0;
 
-        CelestialBody body = vessel.mainBody;
-        Vector3d up = body.GetSurfaceNVector(vessel.latitude, vessel.longitude);
-        Vector3 forward = Vector3.ProjectOnPlane(vessel.ReferenceTransform.up, up);
-        if (forward.sqrMagnitude < 0.01f)
-            forward = Vector3.ProjectOnPlane(-vessel.ReferenceTransform.forward, up);
-
-        Vector3 north = SurfaceFrame(body, vessel.latitude, vessel.longitude, 0) * Vector3.forward;
-        Vector3 east = SurfaceFrame(body, vessel.latitude, vessel.longitude, 90) * Vector3.forward;
-        float angle = Mathf.Atan2(Vector3.Dot(forward, east), Vector3.Dot(forward, north)) * Mathf.Rad2Deg;
-
-        return (angle + 360) % 360;
+        Vector3 up = vessel.mainBody.GetSurfaceNVector(vessel.latitude, vessel.longitude);
+        Vector3 nose = vessel.ReferenceTransform.up;
+        return Heading(vessel.mainBody, vessel.latitude, vessel.longitude, Vector3.ProjectOnPlane(nose, up).sqrMagnitude < 0.01f ? -vessel.ReferenceTransform.forward : nose);
     }
 
     #endregion
