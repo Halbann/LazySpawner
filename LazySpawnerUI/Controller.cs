@@ -26,7 +26,8 @@ public class Controller : MonoBehaviour
     public enum Source { Craft, Clone }
     public static readonly Setting<Source> source = Source.Craft;
     public static readonly Setting<string> craftPath = "";
-    public static readonly Setting<string> lastClipboard = "";
+    // Whatever was copied before the game started isn't picked up, only what's copied while it runs.
+    private static string lastClipboard = GUIUtility.systemCopyBuffer;
     public static readonly TextField<int> count = new TextField<int>("Count", "1", TextField<int>.ParseInt, c => c > 0 && c <= 1000);
 
     // Situation.
@@ -149,10 +150,10 @@ public class Controller : MonoBehaviour
     internal static bool CheckClipboard()
     {
         string clipboard = GUIUtility.systemCopyBuffer;
-        if (clipboard == lastClipboard.Value || Instance == null)
+        if (clipboard == lastClipboard || Instance == null)
             return false;
 
-        lastClipboard.Value = clipboard;
+        lastClipboard = clipboard;
         Craft craft = CraftList.FromText(clipboard);
         if (craft == null)
             return false;
