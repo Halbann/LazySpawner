@@ -28,26 +28,26 @@ public class Controller : MonoBehaviour
     public static readonly Setting<string> craftPath = "";
     // Whatever was copied before the game started isn't picked up, only what's copied while it runs.
     private static string lastClipboard = GUIUtility.systemCopyBuffer;
-    public static readonly TextField<int> count = new TextField<int>("Count", "1", TextField<int>.ParseInt, c => c > 0 && c <= 1000);
+    public static readonly TextField<int> count = new TextField<int>("Count", "1", c => c > 0 && c <= 1000);
 
     // Situation.
     public enum SituationMode { Place, Nearby, Orbit, LaunchSite }
     public static readonly Setting<SituationMode> situationMode = SituationMode.Place;
     public static readonly Setting<bool> randomRotation = false;
-    public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", FindBody);
+    public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", parser: FindBody);
 
     // Nearby.
-    public static readonly TextField<float> range = new TextField<float>("Range", "100", TextField<float>.ParseFloat, r => r >= 0);
+    public static readonly TextField<float> range = new TextField<float>("Range", "100", r => r >= 0);
 
     // Orbit.
     public static readonly Setting<bool> advancedOrbit = false;
-    public static readonly TextField<double> altitude = new TextField<double>("Altitude", "100", s => TextField<double>.ParseDouble(s) * 1000);
-    public static readonly TextField<double> inclination = new TextField<double>("Inclination", "0", TextField<double>.ParseDouble);
-    public static readonly TextField<double> sma = new TextField<double>("SemiMajorAxis", "700", s => TextField<double>.ParseDouble(s) * 1000, a => a != 0);
-    public static readonly TextField<double> eccentricity = new TextField<double>("Eccentricity", "0", TextField<double>.ParseDouble, e => e >= 0);
-    public static readonly TextField<double> lan = new TextField<double>("AscendingNode", "0", TextField<double>.ParseDouble);
-    public static readonly TextField<double> argPe = new TextField<double>("ArgumentOfPeriapsis", "0", TextField<double>.ParseDouble);
-    public static readonly TextField<double> meanAnomaly = new TextField<double>("MeanAnomaly", "0", TextField<double>.ParseDouble);
+    public static readonly TextField<double> altitude = new TextField<double>("Altitude", "100", parser: s => TextField<double>.Parse(s) * 1000);
+    public static readonly TextField<double> inclination = new TextField<double>("Inclination", "0");
+    public static readonly TextField<double> sma = new TextField<double>("SemiMajorAxis", "700", a => a != 0, s => TextField<double>.Parse(s) * 1000);
+    public static readonly TextField<double> eccentricity = new TextField<double>("Eccentricity", "0", e => e >= 0);
+    public static readonly TextField<double> lan = new TextField<double>("AscendingNode", "0");
+    public static readonly TextField<double> argPe = new TextField<double>("ArgumentOfPeriapsis", "0");
+    public static readonly TextField<double> meanAnomaly = new TextField<double>("MeanAnomaly", "0");
     public static readonly Setting<bool> spreadAlongOrbit = true;
 
     // Launch site, by name.
