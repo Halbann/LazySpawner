@@ -418,8 +418,7 @@ public class SpawnScreen : MonoBehaviour
         if (problems.Count > 0)
             return Warnings(problems);
 
-        int number = Controller.count;
-        List<string> lines = new List<string> { Where(template, number, problems, warnings), Crew(template, number) };
+        List<string> lines = new List<string> { Where(template, problems, warnings), Crew(template, Controller.count) };
         ready = problems.Count == 0;
 
         lines.AddRange(Warnings(problems.Concat(warnings)));
@@ -431,7 +430,7 @@ public class SpawnScreen : MonoBehaviour
         warnings.Select(w => orange + w).ToList();
 
     // Only what the settings don't already say: what happens next, and what follows from them.
-    private string Where(VesselTemplate template, int number, List<string> problems, List<string> warnings)
+    private string Where(VesselTemplate template, List<string> problems, List<string> warnings)
     {
         CelestialBody body = Controller.body.value;
         string bodyName = body?.displayName.LocalizeRemoveGender();
@@ -446,7 +445,7 @@ public class SpawnScreen : MonoBehaviour
             case Controller.SituationMode.Nearby:
                 Vessel active = FlightGlobals.ActiveVessel;
                 bool ground = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH;
-                return Loc(ground ? "Summary_NearbyGround" : "Summary_NearbyOrbit", active.GetDisplayName(), number);
+                return Loc(ground ? "Summary_NearbyGround" : "Summary_NearbyOrbit", active.GetDisplayName());
 
             case Controller.SituationMode.LaunchSite:
                 if (LaunchSites.Named(Controller.launchSite) == null)
