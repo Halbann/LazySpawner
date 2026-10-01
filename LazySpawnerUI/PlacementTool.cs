@@ -70,12 +70,12 @@ public class PlacementTool : MonoBehaviour
             Destroy(orbitRenderer.gameObject);
     }
 
+    // Keep the camera, lose everything that would react to the clicks and keys.
+    private const ControlTypes locks = ControlTypes.ALL_SHIP_CONTROLS | ControlTypes.PAUSE | ControlTypes.MAP_UI | ControlTypes.TARGETING;
+
     public void Begin()
     {
         Placing = true;
-
-        // Keep the camera, lose everything that would react to the clicks and keys.
-        ControlTypes locks = ControlTypes.ALL_SHIP_CONTROLS | ControlTypes.PAUSE | ControlTypes.MAP_UI | ControlTypes.TARGETING;
         InputLockManager.SetControlLock(locks, lockID);
     }
 
@@ -149,6 +149,14 @@ public class PlacementTool : MonoBehaviour
                 spaceTurn = Quaternion.identity;
         }
 
+        // Ctrl and the scroll wheel for more or fewer, without the camera zooming meanwhile.
+        bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+        ControlTypes locked = ctrl ? locks | ControlTypes.CAMERACONTROLS : locks;
+        if (InputLockManager.GetControlLock(lockID) != locked)
+            InputLockManager.SetControlLock(locked, lockID);
+        if (ctrl && GameSettings.AXIS_MOUSEWHEEL.GetAxis() != 0)
+            Controller.count.Text = Mathf.Clamp(Number + Math.Sign(GameSettings.AXIS_MOUSEWHEEL.GetAxis()), 1, 1000).ToString();
+
         // Stop on escape, or on a right click that wasn't a camera drag.
         if (Input.GetMouseButtonDown(1))
             (rightClickStart, rightClickTime) = (Input.mousePosition, Time.unscaledTime);
@@ -169,7 +177,7 @@ public class PlacementTool : MonoBehaviour
         {
             gui.Spawn(placed);
 
-            if (!Input.GetKey(KeyCode.LeftControl) && !Input.GetKey(KeyCode.RightControl))
+            if (!ctrl)
                 Finish();
         }
 
@@ -213,7 +221,7 @@ public class PlacementTool : MonoBehaviour
         bool clear = gap >= 0.5f;
 
         placeValid = slope < 30 && clear;
-        placeInfo = $"{template.DisplayName} · {HeadingText}" +
+        placeInfo = $"{Named(template)} · {HeadingText}" +
             (nearest != null && clear ? " · " + Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : "") +
             (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
             (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
@@ -247,7 +255,7 @@ public class PlacementTool : MonoBehaviour
         float gap = Clearance(template, placed, out Vessel nearest);
 
         placeValid = gap >= 1f;
-        placeInfo = $"{template.DisplayName} · " +
+        placeInfo = $"{Named(template)} · " +
             (nearest == null ? "" : placeValid ? Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : $"{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
         return placed;
     }
@@ -288,7 +296,7 @@ public class PlacementTool : MonoBehaviour
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
         double terrain = hitBody.TerrainAltitude(latitude, longitude, true);
         string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · " + Loc("Placing_OnWater") : "";
-        placeInfo = $"{template.DisplayName} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
+        placeInfo = $"{Named(template)} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
             $"{latitude:F3}°, {longitude:F3}° · {HeadingText}";
         return Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Number, Controller.randomRotation);
     }
@@ -326,7 +334,7 @@ public class PlacementTool : MonoBehaviour
 
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
-        placeInfo = $"{template.DisplayName} · {name} · {Loc("Placing_Altitude", Distance(altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
+        placeInfo = $"{Named(template)} · {name} · {Loc("Placing_Altitude", Distance(altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
             (inAtmosphere ? $"\n{red}{Loc("Placing_InAtmosphere")}</color>" : "");
 
         // Together where you click. Spreading them around the orbit is for the Orbit mode.
@@ -438,6 +446,9 @@ public class PlacementTool : MonoBehaviour
         Math.Abs(metres) < 10000 ? $"{metres:0} m" : $"{metres / 1000:0.#} km";
 
     private static int Number => Controller.count.Valid ? Controller.count.value : 1;
+
+    // What's being placed, and how many.
+    private static string Named(VesselTemplate template) => Number > 1 ? Loc("Placing_Several", template.DisplayName, Number) : template.DisplayName;
 
     // Together, in a tidy cluster around the orbit's position.
     private static List<SpawnSituation> Cluster(Orbit orbit, VesselTemplate template, Quaternion? rotation = null) =>
@@ -616,7 +627,7 @@ public class PlacementTool : MonoBehaviour
             : Controller.randomRotation ? null
             : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, Key(GameSettings.Editor_resetRotation))
             : Loc("Placing_Turn", roll, fine);
-        string controls = string.Join(" · ", new[] { Loc("Placing_Spawn"), turning, Loc("Placing_KeepPlacing"), Loc("Placing_Stop") }.Where(s => s != null));
+        string controls = string.Join(" · ", new[] { Loc("Placing_Spawn"), turning, Loc("Placing_Count"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop") }.Where(s => s != null));
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);
