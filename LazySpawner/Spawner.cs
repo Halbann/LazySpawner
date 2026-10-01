@@ -39,7 +39,9 @@ public static class Spawner
     // Kerbals hired to crew spawned vessels this session, so that removing the vessels can fire them again.
     private static readonly HashSet<string> hiredKerbals = new HashSet<string>();
 
-    public static Vessel Spawn(VesselTemplate template, SpawnSituation situation, CrewSettings crew = default)
+    // The new vessel as the save has it. Its vesselRef is the vessel itself, except in the editor,
+    // where it's only in the save until the game goes to flight or the tracking station.
+    public static ProtoVessel Spawn(VesselTemplate template, SpawnSituation situation, CrewSettings crew = default)
     {
         if (template == null)
             throw new ArgumentNullException(nameof(template));
@@ -84,19 +86,19 @@ public static class Spawner
         catch
         {
             // Don't leave kerbals assigned to a vessel that never made it.
-            Discard(protoVessel);
+            Remove(protoVessel);
             throw;
         }
 
         Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")} in {timer.Elapsed.TotalMilliseconds:F1} ms ({prepared:F1} ms to prepare).");
 
-        return protoVessel.vesselRef;
+        return protoVessel;
     }
 
     // Spawn many vessels, as many each frame as fit in the time, so big batches don't freeze the game.
     // Run it as a coroutine. The situations can be worked out as it goes, and spawned vessels are added
     // to the list as they appear. Stops at the first failure by throwing it.
-    public static IEnumerator SpawnAll(VesselTemplate template, IEnumerable<SpawnSituation> situations, CrewSettings crew, List<Vessel> spawned, double millisecondsPerFrame = 30)
+    public static IEnumerator SpawnAll(VesselTemplate template, IEnumerable<SpawnSituation> situations, CrewSettings crew, List<ProtoVessel> spawned, double millisecondsPerFrame = 30)
     {
         Stopwatch frame = Stopwatch.StartNew();
 
@@ -116,28 +118,28 @@ public static class Spawner
 
     // Undo a spawn: crew who were already on the roster go back to the astronaut complex,
     // kerbals hired for the vessel are let go, and the vessel disappears without a trace.
-    public static bool Remove(Vessel vessel)
+    // Not the active vessel, or one that's already gone.
+    public static bool Remove(ProtoVessel spawned)
     {
-        if (vessel == null || vessel.state == Vessel.State.DEAD || vessel == FlightGlobals.ActiveVessel)
+        Vessel vessel = spawned?.vesselRef;
+        if (spawned == null || vessel != null && (vessel.state == Vessel.State.DEAD || vessel == FlightGlobals.ActiveVessel))
             return false;
 
+        // Once the vessel exists, the game saves it afresh, so it holds the record the save has now.
+        ProtoVessel protoVessel = vessel?.protoVessel ?? spawned;
         KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
 
-        foreach (ProtoCrewMember crew in vessel.GetVesselCrew().ToList())
+        foreach (ProtoCrewMember crew in (vessel != null ? vessel.GetVesselCrew() : protoVessel.GetVesselCrew()).ToList())
         {
-            if (vessel.loaded)
+            if (vessel != null && vessel.loaded)
                 foreach (Part part in vessel.parts)
                     if (part.protoModuleCrew.Contains(crew))
                         part.RemoveCrewmember(crew);
 
-            if (vessel.protoVessel != null)
-            {
-                foreach (ProtoPartSnapshot snapshot in vessel.protoVessel.protoPartSnapshots)
-                    snapshot.RemoveCrew(crew);
+            foreach (ProtoPartSnapshot snapshot in protoVessel.protoPartSnapshots)
+                snapshot.RemoveCrew(crew);
 
-                vessel.protoVessel.RemoveCrew(crew);
-            }
-
+            protoVessel.RemoveCrew(crew);
             crew.seatIdx = -1;
 
             if (hiredKerbals.Remove(crew.name))
@@ -146,30 +148,10 @@ public static class Spawner
                 crew.rosterStatus = ProtoCrewMember.RosterStatus.Available;
         }
 
-        HighLogic.CurrentGame.flightState?.protoVessels.Remove(vessel.protoVessel);
-        vessel.Die();
+        HighLogic.CurrentGame.flightState?.protoVessels.Remove(protoVessel);
+        vessel?.Die();
 
         return true;
-    }
-
-    private static void Discard(ProtoVessel protoVessel)
-    {
-        KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
-
-        foreach (ProtoCrewMember crew in protoVessel.GetVesselCrew().ToList())
-        {
-            crew.seatIdx = -1;
-
-            if (hiredKerbals.Remove(crew.name))
-                roster.Remove(crew);
-            else
-                crew.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-        }
-
-        HighLogic.CurrentGame.flightState.protoVessels.Remove(protoVessel);
-
-        if (protoVessel.vesselRef != null)
-            protoVessel.vesselRef.Die();
     }
 
     #endregion
@@ -428,9 +410,11 @@ public static class Spawner
         // Unloaded vessels keep their rotation relative to the body.
         protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * rotation;
 
-        // Add to the game. Load creates the (unloaded) vessel.
+        // Add to the game. Load creates the (unloaded) vessel. The editor has nowhere to put one,
+        // so there it's only in the save until the game goes to flight or the tracking station.
         HighLogic.CurrentGame.flightState.protoVessels.Add(protoVessel);
-        protoVessel.Load(HighLogic.CurrentGame.flightState);
+        if (!HighLogic.LoadedSceneIsEditor)
+            protoVessel.Load(HighLogic.CurrentGame.flightState);
 
         if (protoVessel.vesselRef != null)
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);

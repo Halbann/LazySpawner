@@ -192,7 +192,7 @@ public class SpawnScreen : MonoBehaviour
         RawImage thumbnail = Thumbnail(card, 64);
         refresh.Add(() =>
         {
-            thumbnail.texture = Controller.source == Controller.Source.Craft ? Controller.SelectedCraft?.Thumbnail : null;
+            thumbnail.texture = Controller.source == Controller.Source.Craft && !Controller.InEditor ? Controller.SelectedCraft?.Thumbnail : null;
             thumbnail.enabled = thumbnail.texture != null;
         });
         DebugUI.Label(card, "", DebugUI.LabelWidth - 68);
@@ -201,7 +201,7 @@ public class SpawnScreen : MonoBehaviour
         aboutLayout.flexibleWidth = 1;
         aboutLayout.minWidth = DebugUI.ControlWidth;
         Text(DebugUI.Paragraph(about), CraftDescription);
-        DebugUI.Button(DebugUI.Row(about), Loc("Craft_Change"), () => ShowPicker(true), DebugUI.ControlWidth);
+        Show(DebugUI.Button(DebugUI.Row(about), Loc("Craft_Change"), () => ShowPicker(true), DebugUI.ControlWidth), () => !Controller.InEditor);
         Field(content, Controller.count);
         DebugUI.Spacer(content, 10);
 
@@ -212,6 +212,8 @@ public class SpawnScreen : MonoBehaviour
         DebugUI.Tooltip(modes[0], Loc("Mode_Place_Tooltip"));
         Enable(modes[1], () => Controller.InFlight);
         DebugUI.Tooltip(modes[1], Loc("Mode_Nearby_Tooltip"));
+        Show(modes[0], () => !Controller.InEditor);
+        Show(modes[1], () => !Controller.InEditor);
         DebugUI.Spacer(content, 2);
 
         Transform place = Panel(content, () => Controller.situationMode == Controller.SituationMode.Place);
@@ -267,28 +269,34 @@ public class SpawnScreen : MonoBehaviour
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
         Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => ready && C.spawnRoutine == null);
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
-        Behaviour placeTooltip = DebugUI.Tooltip(spawn, Loc("Button_Place_Tooltip")).GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
-        refresh.Add(() => placeTooltip.enabled = placing());
+        // Where to click, or that the editor stays open.
+        KSP.UI.TooltipTypes.TooltipController_Text spawnTooltip = DebugUI.Tooltip(spawn, "").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
+        refresh.Add(() =>
+        {
+            spawnTooltip.enabled = placing() || Controller.InEditor;
+            spawnTooltip.textString = Loc(placing() ? "Button_Place_Tooltip" : "Button_Spawn_Editor_Tooltip");
+        });
         DebugUI.Spacer(content);
 
         // What happened, with what can be done about it alongside.
         Transform result = DebugUI.Row(Show(DebugUI.Box(content), () => C.status != ""), 6);
         Text(DebugUI.Paragraph(result), () => C.statusIsError ? orange + C.status : C.status);
-        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => FlightGlobals.SetActiveVessel(LastSpawned()), 80),
-            () => HighLogic.LoadedSceneIsFlight && LastSpawned() != null && LastSpawned() != FlightGlobals.ActiveVessel);
+        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => { if (Controller.InEditor) Controller.FlyFromEditor(LastSpawned()); else FlightGlobals.SetActiveVessel(LastSpawned().vesselRef); }, 80),
+            () => LastSpawned() != null && (Controller.InEditor || HighLogic.LoadedSceneIsFlight && LastSpawned().vesselRef != FlightGlobals.ActiveVessel));
         Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
         DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));
         Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? Loc("Button_Undo") : Loc("Button_UndoCount", Removable()));
     }
 
-    private Vessel LastSpawned()
+    // Vessels from the editor stay in the save until the game leaves it. The rest can be destroyed meanwhile.
+    private ProtoVessel LastSpawned()
     {
-        C.lastSpawned.RemoveAll(v => v == null || v.state == Vessel.State.DEAD);
+        C.lastSpawned.RemoveAll(p => !Controller.InEditor && (p.vesselRef == null || p.vesselRef.state == Vessel.State.DEAD));
         return C.lastSpawned.FirstOrDefault();
     }
 
     private int Removable() =>
-        LastSpawned() == null ? 0 : C.lastSpawned.Count(v => v != FlightGlobals.ActiveVessel);
+        LastSpawned() == null ? 0 : C.lastSpawned.Count(p => p.vesselRef == null || p.vesselRef != FlightGlobals.ActiveVessel);
 
     private static RawImage Thumbnail(Transform parent, float size = 36)
     {
@@ -334,6 +342,12 @@ public class SpawnScreen : MonoBehaviour
     {
         if (C == null)
             return "";
+
+        if (Controller.InEditor)
+        {
+            ShipConstruct ship = EditorLogic.fetch.ship;
+            return $"<b>{KSP.Localization.Localizer.Format(ship.shipName)}</b>\n{grey}" + Loc("Craft_Editing", ship.parts.Count);
+        }
 
         if (Controller.source == Controller.Source.Clone)
         {

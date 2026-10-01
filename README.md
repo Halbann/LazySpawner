@@ -1,9 +1,10 @@
-KSP mod for spawning vessels individually and en masse in a variety of ways from Flight or the Tracking Station. It's intended as a development aid, so please don't use it to cheat in your career saves!
+KSP mod for spawning vessels individually and en masse in a variety of ways from flight, the tracking station or the SPH/VAB. It's intended as a development and testing aid, so please don't use it to cheat in your career saves! Don't be lazy.
 
 Press Alt+F, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
 
 - Spawn craft from your game or provide a path to spawn any .craft file. Paths are picked up automatically from the clipboard.
 - Clone the active vessel, or the selected one in the Tracking Station.
+- Spawn the craft that you're editing in the VAB or SPH anywhere without leaving.
 - Place vessels with the mouse: on the ground, next to your vessel, on any planet, or in any orbit from map view.
 - Spawn them nearby, in an orbit you type in, or on a launch site.
 - Spawn as many as you like at once.
@@ -23,12 +24,13 @@ To use the Lazy Spawner API, reference LazySpawner.dll, add `[assembly: KSPAssem
 ```csharp
 VesselTemplate template = VesselTemplate.FromCraft(path); // Or FromVessel(vessel). You make this once and can use it to spawn the same vessel many times.
 
-Vessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading), new CrewSettings(CrewMode.Pilot));
-Vessel probe = Spawner.Spawn(template, SpawnSituation.Orbiting(orbit));
+// The vessel as the save has it. rover.vesselRef is the vessel itself, except in the editor, where there isn't one yet.
+ProtoVessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading), new CrewSettings(CrewMode.Pilot));
+ProtoVessel probe = Spawner.Spawn(template, SpawnSituation.Orbiting(orbit));
 
 StartCoroutine(Spawner.SpawnAll(template, situations, crew, spawned)); // Several at once, spread over several frames
 
 Spawner.Remove(rover); // Undo.
 ```
 
-Please list LazySpawner as a dependency rather than bundling it. KSP only loads one copy of the DLL, so it may pick your version over another newer version. If you want to reference a specific version for some reason, then please let me know so I can make Lazy Painter coordinate itself in the necessary way.
+Please list Lazy Spawner as a dependency rather than bundling it. KSP only loads one copy of the DLL, so it may pick your version over another newer version. If you want to reference a specific version for some reason, then please let me know so I can make Lazy Spawner coordinate itself in the necessary way.

@@ -51,13 +51,15 @@ internal class CraftParser
         if (craftNode == null)
             throw LoadingError("Error_CraftUnreadable", craftPath);
 
-        return new CraftParser().Parse(craftNode);
+        return Parse(craftNode);
     }
+
+    public static VesselTemplate Parse(ConfigNode craftNode) => new CraftParser().Translate(craftNode);
 
     private static SpawnException LoadingError(string key, params object[] args) =>
         new SpawnException(Loc("Error_CraftLoading_Title"), Loc(key, args));
 
-    private VesselTemplate Parse(ConfigNode craftNode)
+    private VesselTemplate Translate(ConfigNode craftNode)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 

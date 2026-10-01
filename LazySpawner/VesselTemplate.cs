@@ -40,6 +40,9 @@ public class VesselTemplate
 
     public static VesselTemplate FromCraft(string craftPath) => CraftParser.Parse(craftPath);
 
+    // A craft as a craft file would have it, like the one in the editor: EditorLogic.fetch.ship.SaveShip().
+    public static VesselTemplate FromCraft(ConfigNode craft) => CraftParser.Parse(craft);
+
     // Rotation of the part the vessel will most likely be controlled from, relative to the root.
     // The spawner works out the real one once the crew are aboard. This is for previews.
     public Quaternion ReferenceRotation => referenceRotation ??= EstimateReferenceRotation();

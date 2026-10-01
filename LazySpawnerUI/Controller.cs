@@ -63,7 +63,7 @@ public class Controller : MonoBehaviour
     public static readonly Setting<KeyCode> keybind = KeyCode.F;
 
     // Result.
-    internal readonly List<Vessel> lastSpawned = new List<Vessel>();
+    internal readonly List<ProtoVessel> lastSpawned = new List<ProtoVessel>();
     internal string status = "";
     internal bool statusIsError;
     internal Coroutine spawnRoutine;
@@ -74,6 +74,19 @@ public class Controller : MonoBehaviour
 
     internal static bool CanPlace => InFlight || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
 
+    // In the editor, it's the craft being edited that's spawned, into orbit or on a launch site.
+    internal static bool InEditor => HighLogic.LoadedSceneIsEditor;
+    private int editorChanges;
+    private void OnShipModified(ShipConstruct ship) => editorChanges++;
+
+    // Leave the editor to fly a vessel spawned from it, keeping the craft for when you come back, as launching would.
+    internal static void FlyFromEditor(ProtoVessel spawned)
+    {
+        ShipConstruction.ShipConfig = EditorLogic.fetch.ship.SaveShip();
+        GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE, GameScenes.FLIGHT);
+        FlightDriver.StartAndFocusVessel("persistent", HighLogic.CurrentGame.flightState.protoVessels.IndexOf(spawned));
+    }
+
     // The screen is showing, or vessels are being placed with it out of the way.
     internal bool IsOpen => SpawnScreen.Visible || placementTool.Placing;
 
@@ -81,7 +94,7 @@ public class Controller : MonoBehaviour
 
     protected void Awake()
     {
-        if (!HighLogic.LoadedSceneIsFlight && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
+        if (!HighLogic.LoadedSceneIsFlight && HighLogic.LoadedScene != GameScenes.TRACKSTATION && !InEditor)
         {
             Destroy(this);
             return;
@@ -99,9 +112,13 @@ public class Controller : MonoBehaviour
         // Fields that parse into game objects need the game to have loaded first.
         body.Refresh();
 
-        // There's nothing to be near in the tracking station.
+        // There's nothing to be near in the tracking station, and nowhere to point in the editor.
         if (HighLogic.LoadedScene == GameScenes.TRACKSTATION && situationMode == SituationMode.Nearby)
             situationMode.Value = SituationMode.Place;
+        if (InEditor && (situationMode == SituationMode.Nearby || situationMode == SituationMode.Place))
+            situationMode.Value = SituationMode.Orbit;
+
+        GameEvents.onEditorShipModified.Add(OnShipModified);
     }
 
     protected void Update()
@@ -120,6 +137,7 @@ public class Controller : MonoBehaviour
         if (Instance == this)
             Instance = null;
 
+        GameEvents.onEditorShipModified.Remove(OnShipModified);
         GlobalSettings.Save();
     }
 
@@ -150,7 +168,7 @@ public class Controller : MonoBehaviour
     internal static bool CheckClipboard()
     {
         string clipboard = GUIUtility.systemCopyBuffer;
-        if (clipboard == lastClipboard || Instance == null)
+        if (clipboard == lastClipboard || Instance == null || InEditor)
             return false;
 
         lastClipboard = clipboard;
@@ -272,20 +290,25 @@ public class Controller : MonoBehaviour
 
     internal void Undo()
     {
-        int removed = lastSpawned.Count(Spawner.Remove);
-        lastSpawned.RemoveAll(v => v == null || v.state == Vessel.State.DEAD);
+        int removed = lastSpawned.RemoveAll(Spawner.Remove);
         status = Loc("Status_Removed", removed);
         statusIsError = false;
     }
 
     private VesselTemplate CreateTemplate()
     {
+        if (InEditor)
+            return EditorTemplate();
+
         if (source == Source.Clone)
             return VesselTemplate.FromVessel(CloneSource());
 
         CraftList.Remember(SelectedCraft);
         return VesselTemplate.FromCraft(craftPath.Value);
     }
+
+    // The craft being edited, as it is now, saved or not.
+    private static VesselTemplate EditorTemplate() => VesselTemplate.FromCraft(EditorLogic.fetch.ship.SaveShip());
 
     private void ShowError(Exception e)
     {
@@ -386,7 +409,9 @@ public class Controller : MonoBehaviour
         string key;
         Vessel original = null;
 
-        if (source == Source.Craft)
+        if (InEditor)
+            key = $"editor {editorChanges} {EditorLogic.fetch.ship.parts.Count} {EditorLogic.fetch.ship.shipName}";
+        else if (source == Source.Craft)
         {
             Craft craft = SelectedCraft;
             if (craft == null)
@@ -415,7 +440,7 @@ public class Controller : MonoBehaviour
 
             try
             {
-                previewCache.template = original != null ? VesselTemplate.FromVessel(original) : VesselTemplate.FromCraft(craftPath.Value);
+                previewCache.template = InEditor ? EditorTemplate() : original != null ? VesselTemplate.FromVessel(original) : VesselTemplate.FromCraft(craftPath.Value);
             }
             catch (MissingPartsException e)
             {
