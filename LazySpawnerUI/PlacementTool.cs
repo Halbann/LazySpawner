@@ -627,7 +627,9 @@ public class PlacementTool : MonoBehaviour
             : Controller.randomRotation ? null
             : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, Key(GameSettings.Editor_resetRotation))
             : Loc("Placing_Turn", roll, fine);
-        string controls = string.Join(" · ", new[] { Loc("Placing_Spawn"), turning, Loc("Placing_Count"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop") }.Where(s => s != null));
+        // What the mouse does, then the keys that adjust it.
+        string controls = string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
+            string.Join(" · ", new[] { turning, Loc("Placing_Count") }.Where(s => s != null));
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);
