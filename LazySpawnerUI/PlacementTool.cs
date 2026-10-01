@@ -54,9 +54,6 @@ public class PlacementTool : MonoBehaviour
     private float rightClickTime;
     private GUIStyle hintStyle;
 
-
-    private static Vector3 MousePosition => Input.mousePosition;
-
     #region Lifecycle
 
     protected void Start()
@@ -221,9 +218,7 @@ public class PlacementTool : MonoBehaviour
             ShowGhosts(template, placed, ref ghostsUsed, placeValid ? Ghost.validColor : Ghost.invalidColor);
 
         // Spawn on click, unless the click was for some UI.
-        bool clicked = Input.GetMouseButtonDown(0);
-
-        if (clicked && placeValid && !MouseOverUI())
+        if (Input.GetMouseButtonDown(0) && placeValid && !MouseOverUI())
         {
             gui.SpawnAt(placed);
 
@@ -243,7 +238,7 @@ public class PlacementTool : MonoBehaviour
         if (active == null)
             return true;
 
-        Ray ray = FlightCamera.fetch.mainCamera.ScreenPointToRay(MousePosition);
+        Ray ray = FlightCamera.fetch.mainCamera.ScreenPointToRay(Input.mousePosition);
         if (!Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore))
         {
             if (!active.LandedOrSplashed && active.situation != Vessel.Situations.PRELAUNCH && active.radarAltitude > 2000)
@@ -280,7 +275,7 @@ public class PlacementTool : MonoBehaviour
 
         // The ghost moves over a plane through the active vessel, facing the camera.
         Camera camera = FlightCamera.fetch.mainCamera;
-        Ray ray = camera.ScreenPointToRay(MousePosition);
+        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
         Vector3 centre = active.transform.position;
         Plane plane = new Plane(-camera.transform.forward, centre);
 
@@ -316,7 +311,7 @@ public class PlacementTool : MonoBehaviour
     private bool PlaceOnMap(VesselTemplate template)
     {
         Camera camera = PlanetariumCamera.Camera;
-        Ray ray = camera.ScreenPointToRay(MousePosition);
+        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
 
         // The planets in the map are spheres in scaled space.
         CelestialBody hitBody = null;
@@ -375,7 +370,7 @@ public class PlacementTool : MonoBehaviour
             return Kind.MapOrbit;
 
         Camera camera = PlanetariumCamera.Camera;
-        Ray ray = camera.ScreenPointToRay(MousePosition);
+        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
         Vector3 centre = body.scaledBody.transform.position;
         Vector3 facing = camera.transform.forward;
 

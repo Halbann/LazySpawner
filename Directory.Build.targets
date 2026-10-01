@@ -1,6 +1,7 @@
 <Project>
-	<!-- Copy the mod folder to the game, after the version file is generated so the game gets the fresh one. -->
-	<Target Name="CopyToGame" AfterTargets="Build;KSPBT_GenerateVersionFile">
+	<!-- Copy the mod folder to the game, after the version file is generated so the game gets the fresh one.
+	     Release builds are for packaging, so they leave the game alone. -->
+	<Target Name="CopyToGame" AfterTargets="Build;KSPBT_GenerateVersionFile" Condition="'$(Configuration)' == 'Debug'">
 		<ItemGroup>
 			<ModFiles Include="$(KSPBT_ModRoot)**\*" />
 		</ItemGroup>

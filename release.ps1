@@ -39,5 +39,19 @@ New-Item -ItemType Directory -Force -Path $buildsDir | Out-Null
 $zip = Join-Path $buildsDir "$modName-$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 
-Compress-Archive -Path (Join-Path $root "GameData") -DestinationPath $zip
+# Written by hand rather than with Compress-Archive, which in Windows PowerShell separates folders with
+# backslashes, against the zip spec. The .pdb files come along: they put line numbers in logs from Unity's
+# development player, which modders use, though the normal player ignores them.
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($zip, "Create")
+try {
+    Get-ChildItem (Join-Path $root "GameData") -Recurse -File | ForEach-Object {
+        $entry = $_.FullName.Substring($root.Length + 1).Replace("\", "/")
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $_.FullName, $entry) | Out-Null
+        Write-Host "  $entry"
+    }
+}
+finally {
+    $archive.Dispose()
+}
 Write-Host "Created $zip" -ForegroundColor Green

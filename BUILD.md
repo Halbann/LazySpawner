@@ -18,5 +18,4 @@ Other ways to set the game path: https://kspbuildtools.readthedocs.io/en/stable/
 
 # Developing LazySpawner
 
-Debug builds of the UI opt in to [HotReloadKSP](https://github.com/Phantomical/HotReloadKSP): with it installed, rebuild and reload LazySpawnerUI from its menu without restarting the game. Settings carry over, and the window reopens where it was. The backend can't be hot reloaded, because the UI would keep using the old copy, so backend changes need a restart.
-
+Debug builds of the UI opt in to [HotReloadKSP](https://github.com/Phantomical/HotReloadKSP): with it installed, rebuild and reload LazySpawnerUI from its menu without restarting the game. Settings carry over, the strings in `Localization` are read again, and reopening the screen shows the changes. The backend can't be hot reloaded, because the UI would keep using the old copy, so backend changes need a restart.
