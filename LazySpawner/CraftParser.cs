@@ -21,6 +21,7 @@ namespace LazySpawner;
 // in top-down tree order so that a part's parent is always loaded before it.
 internal class CraftParser
 {
+    // A part, and where it goes in the vessel. Everything else is read from its node as it's needed.
     private class PartInfo
     {
         public ConfigNode craftNode;
@@ -28,13 +29,9 @@ internal class CraftParser
         public string partName;
         public uint craftID;
         public Vector3 position;
-        public Quaternion rotation = Quaternion.identity;
+        public Quaternion rotation;
         public PartInfo parent;
         public int index = -1;
-        public readonly List<uint> children = new List<uint>();
-        public readonly List<uint> symmetry = new List<uint>();
-        public readonly List<string> attachNodes = new List<string>();
-        public string srfAttachNode;
     }
 
     private readonly Dictionary<uint, PartInfo> partsByCraftID = new Dictionary<uint, PartInfo>();
@@ -182,9 +179,9 @@ internal class CraftParser
                 availablePart = availablePart,
                 partName = partName,
                 craftID = cid,
+                position = KSPUtil.ParseVector3(partNode.GetValue("pos") ?? "0,0,0"),
+                rotation = KSPUtil.ParseQuaternion(partNode.GetValue("rot") ?? "0,0,0,1"),
             };
-
-            ReadPartValues(info);
 
             parts.Add(info);
             partsByCraftID.Add(cid, info);
@@ -198,48 +195,16 @@ internal class CraftParser
             throw LoadingError("Error_NoParts", shipName);
     }
 
-    private void ReadPartValues(PartInfo info)
-    {
-        foreach (ConfigNode.Value value in info.craftNode.values)
-        {
-            switch (value.name)
-            {
-                case "pos":
-                    info.position = KSPUtil.ParseVector3(value.value);
-                    break;
-                case "rot":
-                    info.rotation = KSPUtil.ParseQuaternion(value.value);
-                    break;
-                case "link":
-                    if (TryGetCraftID(value.value, out uint childID))
-                        info.children.Add(childID);
-                    break;
-                case "sym":
-                    if (TryGetCraftID(value.value, out uint symID))
-                        info.symmetry.Add(symID);
-                    break;
-                case "attN":
-                    info.attachNodes.Add(value.value);
-                    break;
-                case "srfN":
-                    info.srfAttachNode = value.value;
-                    break;
-            }
-        }
-    }
+    // The parts a part refers to by name_craftID in its values of this name: its children ("link") or its
+    // symmetry counterparts ("sym").
+    private static IEnumerable<uint> CraftIDs(PartInfo info, string name) =>
+        info.craftNode.GetValues(name).Select(value => uint.TryParse(value.Substring(value.IndexOf('_') + 1), out uint id) ? id : 0).Where(id => id != 0);
 
     private void LinkParts()
     {
         foreach (PartInfo info in parts)
-        {
-            foreach (uint childID in info.children)
-            {
-                if (!partsByCraftID.TryGetValue(childID, out PartInfo child))
-                    throw LoadingError("Error_BrokenLink", $"{info.partName}_{info.craftID}", childID);
-
-                child.parent = info;
-            }
-        }
+            foreach (uint childID in CraftIDs(info, "link"))
+                (partsByCraftID.TryGetValue(childID, out PartInfo child) ? child : throw LoadingError("Error_BrokenLink", $"{info.partName}_{info.craftID}", childID)).parent = info;
     }
 
     private void SortParts(PartInfo info)
@@ -250,7 +215,7 @@ internal class CraftParser
         info.index = sortedParts.Count;
         sortedParts.Add(info);
 
-        foreach (uint childID in info.children)
+        foreach (uint childID in CraftIDs(info, "link"))
             SortParts(partsByCraftID[childID]);
     }
 
@@ -288,15 +253,13 @@ internal class CraftParser
             if (craft.GetValue(copied) is string value)
                 node.AddValue(copied, value);
 
-        foreach (uint symID in info.symmetry)
+        foreach (uint symID in CraftIDs(info, "sym"))
             if (partsByCraftID.TryGetValue(symID, out PartInfo counterpart))
                 node.AddValue("sym", counterpart.index);
 
-        node.AddValue("srfN", TryConvertAttachNode(info.srfAttachNode, out string srfN) ? srfN : "None, -1");
-
-        foreach (string attachNode in info.attachNodes)
-            if (TryConvertAttachNode(attachNode, out string attN))
-                node.AddValue("attN", attN);
+        node.AddValue("srfN", AttachNode(craft.GetValue("srfN")) ?? "None, -1");
+        foreach (string attN in craft.GetValues("attN").Select(AttachNode).Where(attN => attN != null))
+            node.AddValue("attN", attN);
 
         node.AddValue("mass", VesselTemplate.Format(prefab.mass + moduleMass));
         node.AddValue("temp", 300);
@@ -306,73 +269,30 @@ internal class CraftParser
         node.AddValue("attached", true);
         node.AddValue("flag", missionFlag);
         node.AddValue("modMass", VesselTemplate.Format(moduleMass));
-        node.AddValue("moduleVariantName", GetSelectedVariant(craft));
+        node.AddValue("moduleVariantName", craft.GetNodes("MODULE").FirstOrDefault(m => m.GetValue("name") == "ModulePartVariants")?.GetValue("selectedVariant") ?? "");
 
         // Part modules, resources etc. share the same format in craft files and saves.
         foreach (ConfigNode child in craft.nodes)
-        {
-            switch (child.name)
-            {
-                case "MODULE":
-                case "RESOURCE":
-                case "EVENTS":
-                case "ACTIONS":
-                case "PARTDATA":
-                case "EFFECTS":
-                case "VESSELNAMING":
-                    node.AddNode(child.CreateCopy());
-                    break;
-            }
-        }
+            if (copiedNodes.Contains(child.name))
+                node.AddNode(child.CreateCopy());
 
         return node;
     }
 
-    private static string GetSelectedVariant(ConfigNode craftPartNode)
-    {
-        foreach (ConfigNode module in craftPartNode.GetNodes("MODULE"))
-            if (module.GetValue("name") == "ModulePartVariants")
-                return module.GetValue("selectedVariant") ?? "";
-
-        return "";
-    }
+    private static readonly HashSet<string> copiedNodes = new HashSet<string> { "MODULE", "RESOURCE", "EVENTS", "ACTIONS", "PARTDATA", "EFFECTS", "VESSELNAMING" };
 
     // Craft: "top,fuelTank_4294_0|1|0_0|1|0_0|1|0_0|1|0" or "srfAttach,fuelTank_4294,meshName,..."
-    // Persistent: "top, 3" or "srfAttach, 3,meshName"
-    private bool TryConvertAttachNode(string craftValue, out string persistentValue)
+    // Persistent: "top, 3" or "srfAttach, 3,meshName". Null if it isn't attached to anything.
+    private string AttachNode(string craftValue)
     {
-        persistentValue = null;
-
-        if (string.IsNullOrEmpty(craftValue))
-            return false;
-
-        string[] fields = craftValue.Split(',');
-        if (fields.Length < 2)
-            return false;
+        string[] fields = craftValue?.Split(',');
+        string[] part = fields?.Length >= 2 ? fields[1].Split('_') : null;
+        if (part == null || part.Length < 2 || part[0] == "Null" || !uint.TryParse(part[1], out uint craftID) || !partsByCraftID.TryGetValue(craftID, out PartInfo attached))
+            return null;
 
         string nodeID = fields[0].Trim();
-        string[] partFields = fields[1].Split('_');
-
-        if (partFields.Length < 2 || partFields[0] == "Null")
-            return false;
-
-        if (!uint.TryParse(partFields[1], out uint craftID) || !partsByCraftID.TryGetValue(craftID, out PartInfo attached))
-            return false;
-
-        persistentValue = nodeID + ", " + attached.index;
-
-        string meshName = nodeID == "srfAttach" && fields.Length > 2 ? fields[2].Trim() : "";
-        if (meshName != "")
-            persistentValue += "," + meshName;
-
-        return true;
-    }
-
-    private static bool TryGetCraftID(string nameAndCID, out uint craftID)
-    {
-        craftID = 0;
-        int index = nameAndCID.IndexOf('_');
-        return index >= 0 && uint.TryParse(nameAndCID.Substring(index + 1), out craftID) && craftID != 0;
+        string mesh = nodeID == "srfAttach" && fields.Length > 2 ? fields[2].Trim() : "";
+        return $"{nodeID}, {attached.index}" + (mesh != "" ? "," + mesh : "");
     }
 
     #endregion

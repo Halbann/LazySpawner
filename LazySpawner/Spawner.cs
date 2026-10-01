@@ -78,8 +78,9 @@ public static class Spawner
             Populate(protoVessel, template, crew, situation);
 
             // The control point depends on where the crew are.
+            List<ProtoPartSnapshot> snapshots = protoVessel.protoPartSnapshots;
             if (!keptReference)
-                EstablishReferenceTransform(protoVessel);
+                protoVessel.refTransform = snapshots[VesselTemplate.ControlPart(snapshots.Select(s => s.partPrefab).ToList(), i => snapshots[i].protoModuleCrew.Count > 0)].flightID;
 
             Place(protoVessel, template, situation);
         }
@@ -338,7 +339,8 @@ public static class Spawner
         protoVessel.PQSmaxLevel = 0;
         protoVessel.skipGroundPositioningForDroppedPart = false;
 
-        Quaternion referenceRelative = ReferencePart(protoVessel)?.rotation ?? Quaternion.identity;
+        // The root part has no rotation relative to itself.
+        Quaternion referenceRelative = protoVessel.protoPartSnapshots.Find(s => s.flightID == protoVessel.refTransform)?.rotation ?? Quaternion.identity;
         (Vector3d position, Quaternion rotation) = GetPose(template, situation, referenceRelative, out double height, out bool splashed);
         bool landed = situation.landed;
 
@@ -437,43 +439,6 @@ public static class Spawner
         float angle = Vector3.SignedAngle(horizontal, frame * Vector3.forward, up);
         return Quaternion.AngleAxis(angle, up) * worldRotation;
     }
-
-    private static ProtoPartSnapshot ReferencePart(ProtoVessel protoVessel)
-    {
-        foreach (ProtoPartSnapshot snapshot in protoVessel.protoPartSnapshots)
-            if (snapshot.flightID == protoVessel.refTransform)
-                return snapshot;
-
-        return protoVessel.protoPartSnapshots.Count > 0 ? protoVessel.protoPartSnapshots[protoVessel.rootIndex] : null;
-    }
-
-    #endregion
-
-    #region Control
-
-    // The same rules as launching: the root part if it can control the vessel,
-    // otherwise the first crewed control part, then the first control part, then the root.
-    private static void EstablishReferenceTransform(ProtoVessel protoVessel)
-    {
-        List<ProtoPartSnapshot> snapshots = protoVessel.protoPartSnapshots;
-        ProtoPartSnapshot root = snapshots[protoVessel.rootIndex];
-        ProtoPartSnapshot controlPart;
-
-        if (IsControlSource(root))
-            controlPart = root;
-        else
-        {
-            // The snapshots are in top-down tree order, which is the same order the stock game searches in.
-            controlPart = snapshots.FirstOrDefault(s => IsControlSource(s) && s.partPrefab.CrewCapacity > 0 && s.protoModuleCrew.Count > 0)
-                ?? snapshots.FirstOrDefault(IsControlSource)
-                ?? root;
-        }
-
-        protoVessel.refTransform = controlPart.flightID;
-    }
-
-    private static bool IsControlSource(ProtoPartSnapshot snapshot) =>
-        snapshot.partPrefab != null && snapshot.partPrefab.isControlSource > Vessel.ControlLevel.NONE;
 
     #endregion
 

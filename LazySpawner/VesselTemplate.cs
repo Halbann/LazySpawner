@@ -65,30 +65,27 @@ public class VesselTemplate
     public Quaternion ReferenceRotation => referenceRotation ??= EstimateReferenceRotation();
     private Quaternion? referenceRotation;
 
+    // A clone keeps the part it was controlled from. Otherwise, guess the crew will be wherever there are seats.
     private Quaternion EstimateReferenceRotation()
     {
-        ConfigNode[] parts = node.GetNodes("PART");
-        if (parts.Length == 0)
+        if (Parts.Count == 0)
             return Quaternion.identity;
 
         string reference = node.GetValue("ref");
-        ConfigNode found = null;
-
-        if (!string.IsNullOrEmpty(reference) && reference != "0")
-            found = Array.Find(parts, p => p.GetValue("uid") == reference);
-
-        Part Prefab(ConfigNode p) => PartLoader.getPartInfoByName(p.GetValue("name"))?.partPrefab;
-        bool IsControl(ConfigNode p) => Prefab(p)?.isControlSource > Vessel.ControlLevel.NONE;
-
-        if (found == null && IsControl(parts[0]))
-            found = parts[0];
-
-        found ??= Array.Find(parts, p => IsControl(p) && Prefab(p).CrewCapacity > 0)
-            ?? Array.Find(parts, IsControl)
-            ?? parts[0];
-
-        return KSPUtil.ParseQuaternion(found.GetValue("rotation"));
+        int index = reference == null || reference == "0" ? -1 : Array.FindIndex(node.GetNodes("PART"), p => p.GetValue("uid") == reference);
+        List<Part> prefabs = Parts.Select(p => p.info?.partPrefab).ToList();
+        return Parts[index >= 0 ? index : ControlPart(prefabs, i => prefabs[i].CrewCapacity > 0)].rotation;
     }
+
+    // The part a vessel is controlled from, as launching picks it: the root part if it can control the vessel,
+    // otherwise the first crewed control part, then the first control part, then the root. The parts are in
+    // top-down tree order, the root first, which is the order the stock game searches in.
+    internal static int ControlPart(IList<Part> prefabs, Func<int, bool> crewed) =>
+        Enumerable.Range(0, prefabs.Count)
+            .Where(i => prefabs[i] != null && prefabs[i].isControlSource > Vessel.ControlLevel.NONE)
+            .OrderBy(i => i == 0 ? 0 : crewed(i) ? 1 : 2)
+            .DefaultIfEmpty(0)
+            .First();
 
     // Height of the root part above the vessel's lowest point, when turned this way.
     internal float HeightAboveBottom(Quaternion rotation) =>

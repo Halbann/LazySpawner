@@ -184,10 +184,8 @@ internal struct Box
 
     private Vector3 Axis(int i) => i == 0 ? x : i == 1 ? y : z;
 
-    // Half the box's length along a direction.
-    public float Extent(Vector3 axis) => Radius(axis.normalized);
-
-    private float Radius(Vector3 axis) =>
+    // Half the box's length along a direction, given as a unit vector.
+    public float Extent(Vector3 axis) =>
         extents.x * Mathf.Abs(Vector3.Dot(x, axis)) + extents.y * Mathf.Abs(Vector3.Dot(y, axis)) + extents.z * Mathf.Abs(Vector3.Dot(z, axis));
 
     // The widest gap between the boxes along any separating axis, negative if they overlap.
@@ -207,7 +205,7 @@ internal struct Box
                 continue;
 
             axis /= length;
-            gap = Mathf.Max(gap, Mathf.Abs(Vector3.Dot(offset, axis)) - Radius(axis) - other.Radius(axis));
+            gap = Mathf.Max(gap, Mathf.Abs(Vector3.Dot(offset, axis)) - Extent(axis) - other.Extent(axis));
         }
 
         return gap;

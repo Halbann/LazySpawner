@@ -511,17 +511,10 @@ public class SpawnScreen : MonoBehaviour
 
     #region Craft Picker
 
-    // A line in the list: a craft, or the vessel to clone.
-    private class Entry
-    {
-        public Craft craft;
-        public string text;
-        public Action pick;
-    }
-
     private const float rowHeight = 42;
     private ScrollRect scroll;
-    private readonly List<Entry> entries = new List<Entry>();
+    // A line in the list: a craft, or with no craft, the vessel to clone. Its text, if not the craft's usual.
+    private readonly List<(Craft craft, string text)> entries = new List<(Craft, string)>();
     private readonly List<Button> rows = new List<Button>();
     private int shownFrom = -1;
 
@@ -585,18 +578,16 @@ public class SpawnScreen : MonoBehaviour
         // A path, pasted or typed.
         Craft pasted = CraftList.FromText(search.text);
         if (pasted != null)
-            entries.Add(new Entry { craft = pasted, text = Describe(pasted) + $"\n{grey}{pasted.path}", pick = () => Controller.Select(pasted) });
+            entries.Add((pasted, Describe(pasted) + $"\n{grey}{pasted.path}"));
         else
         {
             Vessel original = Controller.CloneSource();
             if (original != null && !original.isEVA && search.text == "")
-                entries.Add(new Entry { text = $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Picker_CopyActive" : "Picker_CopySelected"), pick = () => Controller.source.Value = Controller.Source.Clone });
+                entries.Add((null, $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Picker_CopyActive" : "Picker_CopySelected")));
 
             // Every word, in the name or where it is, so "sph" finds the SPH's craft and a save's name finds that save's.
             string[] words = search.text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (Craft craft in CraftList.List)
-                if (words.All(w => craft.SearchText.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
-                    entries.Add(new Entry { craft = craft, pick = () => Controller.Select(craft) });
+            entries.AddRange(CraftList.List.Where(craft => words.All(w => craft.SearchText.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0)).Select(craft => (craft, (string)null)));
         }
 
         scroll.content.sizeDelta = new Vector2(0, entries.Count * rowHeight);
@@ -630,11 +621,14 @@ public class SpawnScreen : MonoBehaviour
     {
         Button row = DebugUI.Button(scroll.content, "", () =>
         {
-            Entry entry = entries[shownFrom + slot];
-            if (entry.craft?.MissingParts.Count > 0)
+            Craft craft = entries[shownFrom + slot].craft;
+            if (craft?.MissingParts.Count > 0)
                 return;
 
-            entry.pick();
+            if (craft == null)
+                Controller.source.Value = Controller.Source.Clone;
+            else
+                Controller.Select(craft);
             ShowPicker(false);
         });
         RectTransform rect = (RectTransform)row.transform;
@@ -669,7 +663,7 @@ public class SpawnScreen : MonoBehaviour
         return row;
     }
 
-    private void Fill(Button row, Entry entry, int index)
+    private void Fill(Button row, (Craft craft, string text) entry, int index)
     {
         ((RectTransform)row.transform).anchoredPosition = new Vector2(0, -index * rowHeight);
         row.GetComponentInChildren<TextMeshProUGUI>().text = entry.text ?? Describe(entry.craft);
@@ -679,7 +673,7 @@ public class SpawnScreen : MonoBehaviour
         image.texture = entry.craft?.Thumbnail;
         image.enabled = image.texture != null;
 
-        bool missing = entry.craft != null && entry.craft.MissingParts.Count > 0;
+        bool missing = entry.craft?.MissingParts.Count > 0;
         row.image.color = missing ? new Color(0.24f, 0.24f, 0.24f) : new Color(0.3f, 0.3f, 0.3f);
         KSP.UI.TooltipTypes.TooltipController_Text tooltip = row.GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
         tooltip.enabled = missing;
