@@ -206,7 +206,8 @@ public class PlacementTool : MonoBehaviour
             if (!nearGround)
                 return null;
 
-            placeInfo = Loc("Placing_PointAtGround");
+            // Ground further away than ghosts are drawn is for the map.
+            placeInfo = Loc(RaySphere(ray.origin - body.position, ray.direction, body.Radius, out _, out _) ? "Placing_TooFar" : "Placing_PointAtGround");
             return new List<SpawnSituation>();
         }
 
