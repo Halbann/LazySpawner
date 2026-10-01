@@ -54,27 +54,17 @@ public class Ghost
             modelCopy.transform.localScale = model.localScale;
             modelCopy.SetActive(true);
 
-            ApplyVariant(prefab, modelCopy.transform, templatePart.variant);
+            // Parts with variants have every variant's meshes in the prefab. Show the selected one's.
+            Dictionary<string, bool> variant = VesselBounds.Variant(prefab, templatePart.variant);
+            foreach (Transform child in modelCopy.GetComponentsInChildren<Transform>(true))
+                if (variant.TryGetValue(child.name, out bool shown))
+                    child.gameObject.SetActive(shown);
+
             Strip(modelCopy, materialCache);
         }
 
         materials.AddRange(materialCache.Values);
         SetColor(validColor);
-    }
-
-    // Parts with variants have every variant's meshes in the prefab. Show the selected one.
-    private static void ApplyVariant(Part prefab, Transform model, string variantName)
-    {
-        ModulePartVariants variants = prefab.variants;
-        if (variants == null || variants.variantList == null || variants.variantList.Count == 0)
-            return;
-
-        PartVariant variant = variants.variantList.Find(v => v.Name == variantName) ?? variants.variantList[0];
-
-        foreach (PartGameObjectInfo info in variant.InfoGameObjects)
-            foreach (Transform child in model.GetComponentsInChildren<Transform>(true))
-                if (child.name == info.Name)
-                    child.gameObject.SetActive(info.Status);
     }
 
     // Keep only what's needed to draw the model.

@@ -51,30 +51,31 @@ public static class VesselBounds
 
         Matrix4x4 partToVessel = Matrix4x4.TRS(part.position, part.rotation, Vector3.one);
         Matrix4x4 worldToPrefab = prefab.transform.worldToLocalMatrix;
-        HashSet<string> hidden = HiddenByVariant(prefab, part.variant);
+        Dictionary<string, bool> variant = Variant(prefab, part.variant);
 
         foreach (Collider collider in prefab.GetComponentsInChildren<Collider>(true))
-            if (collider.enabled && !collider.isTrigger && Shown(collider.transform, prefab.transform, hidden))
+            if (collider.enabled && !collider.isTrigger && Shown(collider.transform, prefab.transform, variant))
                 foreach (Vector3 corner in Corners(collider, partToVessel * worldToPrefab * collider.transform.localToWorldMatrix))
                     yield return corner;
     }
 
-    // Prefabs have every variant's objects. The ones the selected variant turns off don't count.
-    private static HashSet<string> HiddenByVariant(Part prefab, string variantName)
+    // Prefabs have every variant's objects. Which of them, by name, the selected variant turns on or off.
+    public static Dictionary<string, bool> Variant(Part prefab, string variantName)
     {
+        Dictionary<string, bool> shown = new Dictionary<string, bool>();
         List<PartVariant> variants = prefab.variants?.variantList;
-        if (variants == null || variants.Count == 0)
-            return new HashSet<string>();
+        if (variants?.Count > 0)
+            foreach (PartGameObjectInfo info in (variants.Find(v => v.Name == variantName) ?? variants[0]).InfoGameObjects)
+                shown[info.Name] = info.Status;
 
-        PartVariant variant = variants.Find(v => v.Name == variantName) ?? variants[0];
-        return new HashSet<string>(variant.InfoGameObjects.Where(info => !info.Status).Select(info => info.Name));
+        return shown;
     }
 
-    // The prefab itself is inactive, so look at each object's own active flag up to the part.
-    private static bool Shown(Transform transform, Transform root, HashSet<string> hidden)
+    // The prefab itself is inactive, so look at each object's own active flag up to the part, as the variant sets it.
+    private static bool Shown(Transform transform, Transform root, Dictionary<string, bool> variant)
     {
         for (Transform t = transform; t != null && t != root; t = t.parent)
-            if (!t.gameObject.activeSelf || hidden.Contains(t.name))
+            if (!(variant.TryGetValue(t.name, out bool shown) ? shown : t.gameObject.activeSelf))
                 return false;
 
         return true;

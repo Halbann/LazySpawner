@@ -23,7 +23,8 @@ public class PlacementTool : MonoBehaviour
 {
     public Controller gui;
 
-    private enum Kind { Ground, Space, Map, MapOrbit }
+    // What the rotation keys do: turn the heading, turn freely, or reverse the orbit.
+    private enum Kind { Landed, Space, Orbit }
 
     public bool Placing { get; private set; }
     private Kind kind;
@@ -44,7 +45,6 @@ public class PlacementTool : MonoBehaviour
     private static Texture2D markerTexture;
 
     // Placing.
-    private List<SpawnSituation> placed;
     private bool placeValid;
     private string placeInfo;
     private float placeHeading = 90;
@@ -82,7 +82,6 @@ public class PlacementTool : MonoBehaviour
     public void Stop()
     {
         Placing = false;
-        placed = null;
         InputLockManager.RemoveControlLock(lockID);
     }
 
@@ -97,73 +96,48 @@ public class PlacementTool : MonoBehaviour
 
     #region Update
 
+    // Whatever is being placed, or the orbit being set up in the map: markers and the orbit line in the map, ghosts in flight.
     protected void LateUpdate()
     {
-        markers.Clear();
-        int ghostsUsed = 0;
-        bool lineUsed = false;
-
         try
         {
-            if (!gui.IsOpen)
-            {
-                Stop();
-                return;
-            }
-
-            VesselTemplate template = gui.Template(out _);
+            VesselTemplate template = gui.IsOpen ? gui.Template(out _) : null;
             if (template == null)
-            {
                 Stop();
-                return;
-            }
 
             bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+            List<SpawnSituation> shown = template == null ? null
+                : Placing ? UpdatePlacing(template, map)
+                : map && Controller.situationMode == Controller.SituationMode.Orbit ? gui.PreviewSituations(template)
+                : null;
 
-            if (Placing)
-                UpdatePlacing(template, map, ref ghostsUsed, ref lineUsed);
-            else if (map && Controller.situationMode == Controller.SituationMode.Orbit)
-                lineUsed = PreviewOrbit(template);
+            markers.Clear();
+            if (map && shown != null)
+                markers.AddRange(shown.Select(Marker));
+
+            ShowGhosts(template, map ? null : shown);
+            DrawOrbit(map && shown?.Count > 0 && !shown[0].landed ? shown[0].orbit : null);
         }
         catch (Exception e)
         {
             Logger.Error($"Preview failed: {e}");
             Stop();
         }
-        finally
-        {
-            for (int i = ghostsUsed; i < ghosts.Count; i++)
-                ghosts[i].Visible = false;
-
-            if (orbitRenderer != null && !lineUsed)
-                orbitRenderer.drawMode = OrbitRendererBase.DrawMode.OFF;
-        }
     }
 
-    private bool PreviewOrbit(VesselTemplate template)
-    {
-        List<SpawnSituation> orbits = gui.PreviewSituations(template);
-        if (orbits == null || orbits.Count == 0)
-            return false;
-
-        DrawOrbit(orbits[0].orbit);
-        AddMarkers(orbits);
-        return true;
-    }
-
-    private void UpdatePlacing(VesselTemplate template, bool map, ref int ghostsUsed, ref bool lineUsed)
+    private List<SpawnSituation> UpdatePlacing(VesselTemplate template, bool map)
     {
         // Turn with the editor's keys, the same way: 90° a press, or 5° with its fine tweak key.
         float step = GameSettings.Editor_fineTweak.GetKey(true) ? 5 : 90;
         bool Pressed(KeyBinding key) => key.GetKeyDown(true);
         float roll = Pressed(GameSettings.Editor_rollLeft) ? step : Pressed(GameSettings.Editor_rollRight) ? -step : 0;
 
-        if (kind == Kind.MapOrbit)
+        if (kind == Kind.Orbit)
         {
             if (roll != 0)
                 reverseOrbit = !reverseOrbit;
         }
-        else if (kind == Kind.Ground)
+        else if (kind == Kind.Landed)
             placeHeading = (placeHeading - roll + 360f) % 360f;
         else
         {
@@ -176,46 +150,19 @@ public class PlacementTool : MonoBehaviour
         }
 
         // Stop on escape, or on a right click that wasn't a camera drag.
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            Finish();
-            return;
-        }
-
         if (Input.GetMouseButtonDown(1))
-        {
-            rightClickStart = Input.mousePosition;
-            rightClickTime = Time.unscaledTime;
-        }
-        else if (Input.GetMouseButtonUp(1) && (Input.mousePosition - rightClickStart).magnitude < 6 && Time.unscaledTime - rightClickTime < 0.4f)
+            (rightClickStart, rightClickTime) = (Input.mousePosition, Time.unscaledTime);
+
+        if (Input.GetKeyDown(KeyCode.Escape) || Input.GetMouseButtonUp(1) && (Input.mousePosition - rightClickStart).magnitude < 6 && Time.unscaledTime - rightClickTime < 0.4f)
         {
             Finish();
-            return;
+            return null;
         }
 
-        placed = null;
+        // Whatever is under the mouse: the ground, or else space. Each says how it went.
         placeValid = false;
         placeInfo = null;
-
-        // Whatever is under the mouse: the ground, or else space.
-        if (map)
-            kind = PlaceOnMap(template) ? Kind.Map : PlaceOrbit(template);
-        else
-            kind = PlaceOnGround(template) ? Kind.Ground : PlaceInSpace(template);
-
-        if (placed == null)
-            return;
-
-        if (kind == Kind.MapOrbit)
-        {
-            DrawOrbit(placed[0].orbit);
-            lineUsed = true;
-            AddMarkers(placed);
-        }
-        else if (kind == Kind.Map)
-            AddMarkers(placed);
-        else
-            ShowGhosts(template, placed, ref ghostsUsed, placeValid ? Ghost.validColor : Ghost.invalidColor);
+        List<SpawnSituation> placed = map ? PlaceOnMap(template) ?? PlaceOrbit(template) : PlaceOnGround(template) ?? PlaceInSpace(template);
 
         // Spawn on click, unless the click was for some UI.
         if (Input.GetMouseButtonDown(0) && placeValid && !MouseOverUI())
@@ -225,18 +172,19 @@ public class PlacementTool : MonoBehaviour
             if (!Input.GetKey(KeyCode.LeftControl) && !Input.GetKey(KeyCode.RightControl))
                 Finish();
         }
+
+        return placed;
     }
 
     #endregion
 
     #region Placing
 
-    // False if the mouse isn't on the ground, and the active vessel is far enough off it to place beside it instead.
-    private bool PlaceOnGround(VesselTemplate template)
+    // Null if the mouse isn't on the ground, and the active vessel is far enough off it to place beside it instead.
+    private List<SpawnSituation> PlaceOnGround(VesselTemplate template)
     {
+        kind = Kind.Landed;
         Vessel active = FlightGlobals.ActiveVessel;
-        if (active == null)
-            return true;
 
         // Nearby ground has colliders, buildings and all. Further away there's only the terrain. From high up,
         // pointing off the ground is for placing beside the vessel.
@@ -248,15 +196,15 @@ public class PlacementTool : MonoBehaviour
         if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
         {
             if (!nearGround)
-                return false;
+                return null;
 
             placeInfo = Loc("Placing_PointAtGround");
-            return true;
+            return new List<SpawnSituation>();
         }
 
         body.GetLatLonAlt(collider ? hit.point : (Vector3d)ray.origin + (Vector3d)ray.direction * distance, out double latitude, out double longitude, out _);
 
-        placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation);
+        List<SpawnSituation> placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation);
 
         // Steep ground tips things over, and overlapping vessels explode. Only nearby ground says how steep it is.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
@@ -269,23 +217,18 @@ public class PlacementTool : MonoBehaviour
             (nearest != null && clear ? " · " + Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : "") +
             (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
             (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
-        return true;
+        return placed;
     }
 
-    private Kind PlaceInSpace(VesselTemplate template)
+    // Beside the active vessel, on a plane through it facing the camera.
+    private List<SpawnSituation> PlaceInSpace(VesselTemplate template)
     {
+        kind = Kind.Space;
         Vessel active = FlightGlobals.ActiveVessel;
-        if (active == null)
-            return Kind.Space;
-
-        // The ghost moves over a plane through the active vessel, facing the camera.
         Camera camera = FlightCamera.fetch.mainCamera;
         Ray ray = camera.ScreenPointToRay(Input.mousePosition);
-        Vector3 centre = active.transform.position;
-        Plane plane = new Plane(-camera.transform.forward, centre);
-
-        if (!plane.Raycast(ray, out float enter))
-            return Kind.Space;
+        if (!new Plane(-camera.transform.forward, active.transform.position).Raycast(ray, out float enter))
+            return new List<SpawnSituation>();
 
         Vector3 point = ray.GetPoint(enter);
 
@@ -298,7 +241,7 @@ public class PlacementTool : MonoBehaviour
         Quaternion frame = Quaternion.LookRotation(prograde, up.sqrMagnitude > 1e-4f ? up : point - (Vector3)active.mainBody.position);
         Quaternion rotation = frame * spaceTurn * Quaternion.LookRotation(Vector3.down, Vector3.forward);
 
-        placed = Cluster(orbit, template, rotation);
+        List<SpawnSituation> placed = Cluster(orbit, template, rotation);
 
         // Measured between the vessels' boxes, not their centres.
         float gap = Clearance(template, placed, out Vessel nearest);
@@ -306,12 +249,13 @@ public class PlacementTool : MonoBehaviour
         placeValid = gap >= 1f;
         placeInfo = $"{template.DisplayName} · " +
             (nearest == null ? "" : placeValid ? Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : $"{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
-        return Kind.Space;
+        return placed;
     }
 
-    // False if the mouse isn't over a planet or moon.
-    private bool PlaceOnMap(VesselTemplate template)
+    // Null if the mouse isn't over a planet or moon.
+    private List<SpawnSituation> PlaceOnMap(VesselTemplate template)
     {
+        kind = Kind.Landed;
         // The map's planets are smooth and scaled down, so follow the same line at full size, hills and all.
         Ray ray = PlanetariumCamera.Camera.ScreenPointToRay(Input.mousePosition);
         Vector3d origin = ScaledSpace.ScaledToLocalSpace(ray.origin);
@@ -325,7 +269,7 @@ public class PlacementTool : MonoBehaviour
             }
 
         if (hitBody == null)
-            return false;
+            return null;
 
         Vector3d surface = origin + (Vector3d)ray.direction * nearest;
         double latitude = hitBody.GetLatitude(surface);
@@ -336,10 +280,9 @@ public class PlacementTool : MonoBehaviour
         if (hitBody.pqsController == null)
         {
             placeInfo = Loc("Placing_NoSurface", name);
-            return true;
+            return new List<SpawnSituation>();
         }
 
-        placed = Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Number, Controller.randomRotation);
         placeValid = true;
 
         string biome = ScienceUtil.GetExperimentBiomeLocalized(hitBody, latitude, longitude);
@@ -347,41 +290,30 @@ public class PlacementTool : MonoBehaviour
         string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · " + Loc("Placing_OnWater") : "";
         placeInfo = $"{template.DisplayName} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
             $"{latitude:F3}°, {longitude:F3}° · {HeadingText}";
-        return true;
+        return Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Number, Controller.randomRotation);
     }
 
     // A circular orbit through the point under the mouse, in the plane facing the camera.
     // Look down on the north pole for an equatorial orbit, from the side for a polar one.
-    private Kind PlaceOrbit(VesselTemplate template)
+    private List<SpawnSituation> PlaceOrbit(VesselTemplate template)
     {
+        kind = Kind.Orbit;
         CelestialBody body = MapBody();
-        if (body == null)
-            return Kind.MapOrbit;
-
         Camera camera = PlanetariumCamera.Camera;
         Ray ray = camera.ScreenPointToRay(Input.mousePosition);
-        Vector3 centre = body.scaledBody.transform.position;
+        Vector3 centre = body?.scaledBody.transform.position ?? Vector3.zero;
         Vector3 facing = camera.transform.forward;
-
-        if (!new Plane(facing, centre).Raycast(ray, out float enter))
-            return Kind.MapOrbit;
+        if (body == null || !new Plane(facing, centre).Raycast(ray, out float enter))
+            return new List<SpawnSituation>();
 
         Vector3d radial = ((Vector3d)(ray.GetPoint(enter) - centre)) * ScaledSpace.ScaleFactor;
         double radius = radial.magnitude;
         double altitude = radius - body.Radius;
         string name = body.displayName.LocalizeRemoveGender();
 
-        if (radius <= body.Radius)
-        {
-            placeInfo = Loc("Placing_FurtherOut", name);
-            return Kind.MapOrbit;
-        }
-
-        if (radius >= body.sphereOfInfluence)
-        {
-            placeInfo = Loc("Placing_OutsideSOI", name);
-            return Kind.MapOrbit;
-        }
+        placeInfo = radius <= body.Radius ? Loc("Placing_FurtherOut", name) : radius >= body.sphereOfInfluence ? Loc("Placing_OutsideSOI", name) : null;
+        if (placeInfo != null)
+            return new List<SpawnSituation>();
 
         // Anticlockwise as seen by the camera, like most orbits seen from the north. Q/E reverse it.
         // Unity is left-handed, so a normal pointing away from the camera is anticlockwise on screen.
@@ -392,14 +324,13 @@ public class PlacementTool : MonoBehaviour
         double UT = Planetarium.GetUniversalTime();
         Orbit orbit = Placement.OrbitFromWorldState(body, body.position + radial, prograde * speed, UT);
 
-        // Together where you click. Spreading them around the orbit is for the Orbit mode.
-        placed = Cluster(orbit, template);
-
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
         placeInfo = $"{template.DisplayName} · {name} · {Loc("Placing_Altitude", Distance(altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
             (inAtmosphere ? $"\n{red}{Loc("Placing_InAtmosphere")}</color>" : "");
-        return Kind.MapOrbit;
+
+        // Together where you click. Spreading them around the orbit is for the Orbit mode.
+        return Cluster(orbit, template);
     }
 
     // The body the map is looking at, or the one in the window.
@@ -524,37 +455,41 @@ public class PlacementTool : MonoBehaviour
 
     #region Ghosts
 
-    private void ShowGhosts(VesselTemplate template, List<SpawnSituation> situations, ref int ghostsUsed, Color color)
+    // A ghost for each vessel in view, as many as there are ghosts for, and the rest hidden.
+    private void ShowGhosts(VesselTemplate template, List<SpawnSituation> situations)
     {
-        if (template != ghostTemplate)
+        int used = 0;
+        if (situations?.Count > 0)
         {
-            ClearGhosts();
-            ghostTemplate = template;
+            if (template != ghostTemplate)
+            {
+                ClearGhosts();
+                ghostTemplate = template;
+            }
+
+            Vector3 camera = FlightCamera.fetch.mainCamera.transform.position;
+            foreach (SpawnSituation situation in situations.Where(s => !s.landed || s.body == FlightGlobals.currentMainBody))
+            {
+                if (used >= maxGhosts)
+                    break;
+
+                (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation);
+                if (((Vector3)position - camera).magnitude > ghostRange)
+                    continue;
+
+                if (used >= ghosts.Count)
+                    ghosts.Add(new Ghost(template));
+
+                Ghost ghost = ghosts[used++];
+                ghost.SetPose(position, rotation);
+                ghost.ShowLaunchClamps(situation.landed);
+                ghost.SetColor(placeValid ? Ghost.validColor : Ghost.invalidColor);
+                ghost.Visible = true;
+            }
         }
 
-        Vector3 camera = FlightCamera.fetch != null ? FlightCamera.fetch.mainCamera.transform.position : Vector3.zero;
-
-        foreach (SpawnSituation situation in situations)
-        {
-            if (ghostsUsed >= maxGhosts)
-                return;
-
-            if (situation.landed && situation.body != FlightGlobals.currentMainBody)
-                continue;
-
-            (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation);
-            if (((Vector3)position - camera).magnitude > ghostRange)
-                continue;
-
-            if (ghostsUsed >= ghosts.Count)
-                ghosts.Add(new Ghost(template));
-
-            Ghost ghost = ghosts[ghostsUsed++];
-            ghost.SetPose(position, rotation);
-            ghost.ShowLaunchClamps(situation.landed);
-            ghost.SetColor(color);
-            ghost.Visible = true;
-        }
+        for (int i = used; i < ghosts.Count; i++)
+            ghosts[i].Visible = false;
     }
 
     private void ClearGhosts()
@@ -570,26 +505,24 @@ public class PlacementTool : MonoBehaviour
 
     #region Map
 
-    private void AddMarkers(List<SpawnSituation> situations)
-    {
-        double UT = Planetarium.GetUniversalTime();
-
-        foreach (SpawnSituation situation in situations)
-        {
-            Vector3d world = situation.landed
-                ? situation.body.GetWorldSurfacePosition(situation.latitude, situation.longitude, Math.Max(0, situation.body.TerrainAltitude(situation.latitude, situation.longitude)))
-                : situation.orbit.getPositionAtUT(UT);
-
-            markers.Add((world, situation.body));
-        }
-    }
+    private static (Vector3d, CelestialBody) Marker(SpawnSituation situation) =>
+        (situation.landed
+            ? situation.body.GetWorldSurfacePosition(situation.latitude, situation.longitude, situation.body.TerrainAltitude(situation.latitude, situation.longitude))
+            : situation.orbit.getPositionAtUT(Planetarium.GetUniversalTime()), situation.body);
 
     // Drawn by the stock orbit renderer, the way contracts draw their target orbits, so the preview
     // takes exactly the same path as every other orbit line: same camera, same frame, same timing.
     // It's the stock component itself rather than a subclass, because Unity's script execution
-    // order is set per class, and the timing is the whole point.
+    // order is set per class, and the timing is the whole point. No orbit hides it.
     private void DrawOrbit(Orbit orbit)
     {
+        if (orbit == null)
+        {
+            if (orbitRenderer != null)
+                orbitRenderer.drawMode = OrbitRendererBase.DrawMode.OFF;
+            return;
+        }
+
         if (orbitRenderer == null)
         {
             GameObject line = new GameObject("LazySpawner Orbit Preview");
@@ -687,7 +620,7 @@ public class PlacementTool : MonoBehaviour
         string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
         string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
         string fine = Key(GameSettings.Editor_fineTweak);
-        string turning = kind == Kind.MapOrbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
+        string turning = kind == Kind.Orbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
             : Controller.randomRotation ? null
             : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, Key(GameSettings.Editor_resetRotation))
             : Loc("Placing_Turn", roll, fine);

@@ -350,43 +350,31 @@ public class Controller : MonoBehaviour
     }
 
     // Previews can't be random, or they'd jump about every frame.
+    // Nothing for Place, which is where the placement tool says.
     private List<SpawnSituation> CreateSituations(VesselTemplate template, int number, bool preview)
     {
-        List<SpawnSituation> situations = new List<SpawnSituation>();
-
-        if (situationMode == SituationMode.Orbit && !body.Valid)
-            throw new SpawnException(Loc("Error_NoBody", body.Text));
-
         switch (situationMode.Value)
         {
             case SituationMode.Nearby:
                 return preview ? null : Formations.Nearby(FlightGlobals.ActiveVessel, template, number, range, randomRotation);
 
-            case SituationMode.Orbit:
-                Orbit reference = CreateOrbit(0);
-
-                for (int i = 0; i < number; i++)
-                {
-                    Orbit orbit;
-
-                    if (number == 1)
-                        orbit = reference;
-                    else if (spreadAlongOrbit && reference.eccentricity < 1)
-                        orbit = CreateOrbit(360.0 * i / number);
-                    else
-                        orbit = Formations.Cluster(reference, template, i, randomRotation);
-
-                    situations.Add(SpawnSituation.Orbiting(orbit, randomRotation && !preview ? Random.rotation : null));
-                }
-
-                break;
-
             case SituationMode.LaunchSite:
                 LaunchSites.Site site = LaunchSites.Named(launchSite) ?? throw new SpawnException(Loc("Summary_NoLaunchSites"));
                 return Formations.LandedRow(template, site.body, site.latitude, site.longitude, site.heading, number, false);
-        }
 
-        return situations;
+            case SituationMode.Orbit:
+                if (!body.Valid)
+                    throw new SpawnException(Loc("Error_NoBody", body.Text));
+
+                Orbit reference = CreateOrbit(0);
+                bool spread = spreadAlongOrbit && reference.eccentricity < 1;
+                return Enumerable.Range(0, number).Select(i => SpawnSituation.Orbiting(
+                    spread ? CreateOrbit(360.0 * i / number) : Formations.Cluster(reference, template, i, randomRotation),
+                    randomRotation && !preview ? Random.rotation : null)).ToList();
+
+            default:
+                return null;
+        }
     }
 
     internal static Orbit CreateOrbit(double meanAnomalyOffset)
