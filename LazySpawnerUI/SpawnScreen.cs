@@ -397,8 +397,9 @@ public class SpawnScreen : MonoBehaviour
     {
         ready = false;
         VesselTemplate template = C.Template(out Exception error);
+        // The craft card already says when there's nothing to spawn, and which parts are missing.
         if (template == null)
-            return CardSaysWhy ? new List<string>() : Warnings(new[] { Controller.ShortMessage(error) });
+            return error is null or MissingPartsException ? new List<string>() : Warnings(new[] { Controller.ShortMessage(error) });
 
         List<string> problems = new List<string>(), warnings = new List<string>();
         ITextField[] fields = Controller.situationMode.Value switch
@@ -425,11 +426,6 @@ public class SpawnScreen : MonoBehaviour
         lines.RemoveAll(line => line == null);
         return lines;
     }
-
-    // The craft card says what's wrong when it can tell without reading the craft, by the button to fix it.
-    private static bool CardSaysWhy => !Controller.InEditor && (Controller.source == Controller.Source.Clone
-        ? Controller.CloneSource() == null
-        : Controller.SelectedCraft is not Craft craft || craft.MissingParts.Count > 0);
 
     private static List<string> Warnings(IEnumerable<string> warnings) =>
         warnings.Select(w => orange + w).ToList();

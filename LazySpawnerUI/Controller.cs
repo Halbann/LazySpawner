@@ -244,7 +244,7 @@ public class Controller : MonoBehaviour
     // they're previewed, so they're turned at random last.
     internal void Spawn(List<SpawnSituation> placed = null)
     {
-        if (spawnRoutine != null)
+        if (spawnRoutine != null || Template(out _) == null)
             return;
 
         if (placed != null && randomRotation)
@@ -327,11 +327,12 @@ public class Controller : MonoBehaviour
         statusIsError = false;
     }
 
-    // The craft being edited as it is now, saved or not, the vessel to clone, or the craft picked.
+    // The craft being edited as it is now, saved or not, the vessel to clone, or the craft picked. Null if
+    // there's nothing to clone or nothing picked yet, which the craft card says.
     private static VesselTemplate CreateTemplate() =>
         InEditor ? VesselTemplate.FromCraft(EditorLogic.fetch.ship.SaveShip())
-        : source == Source.Clone ? VesselTemplate.FromVessel(CloneSource() ?? throw new SpawnException(Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel")))
-        : VesselTemplate.FromCraft(SelectedCraft?.path ?? throw new SpawnException(Loc("Craft_Choose")));
+        : source == Source.Clone ? CloneSource() is Vessel original ? VesselTemplate.FromVessel(original) : null
+        : SelectedCraft is Craft craft ? VesselTemplate.FromCraft(craft.path) : null;
 
     // The first line, for the status and the summary. A long message would make them too tall.
     internal static string ShortMessage(Exception e) =>
