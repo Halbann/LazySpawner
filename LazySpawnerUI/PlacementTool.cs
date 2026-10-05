@@ -246,9 +246,10 @@ public class PlacementTool : MonoBehaviour
         double UT = Planetarium.GetUniversalTime();
         Orbit orbit = Placement.OrbitFromWorldState(active.mainBody, point, active.obt_velocity, UT);
 
-        // Nose prograde and roof up on screen, then turned. A control part's up is its nose, and its forward its belly.
+        // Nose prograde and roof up the camera's pivot axis, which doesn't tilt as the camera pitches, then turned.
+        // A control part's up is its nose, and its forward its belly.
         Vector3 prograde = ((Vector3)active.obt_velocity).normalized;
-        Vector3 up = Vector3.ProjectOnPlane(camera.transform.up, prograde);
+        Vector3 up = Vector3.ProjectOnPlane(FlightCamera.fetch.getReferenceFrame() * Vector3.up, prograde);
         Quaternion frame = Quaternion.LookRotation(prograde, up.sqrMagnitude > 1e-4f ? up : point - (Vector3)active.mainBody.position);
         Quaternion rotation = frame * spaceTurn * Quaternion.LookRotation(Vector3.down, Vector3.forward);
 
