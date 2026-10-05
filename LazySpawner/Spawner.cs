@@ -70,6 +70,10 @@ public static class Spawner
         else
             RemoveLaunchClamps(node);
 
+        // A vessel that's never been flown has no camera mode to restore when it's switched to, and the camera keeps the
+        // last vessel's. Between orbit and the ground, it then measures its distance on the frame it's inside the vessel.
+        node.SetValue("cMod", (int)FlightCamera.Modes.AUTO, true);
+
         // The stock constructor registers the vessel's and parts' persistent IDs.
         ProtoVessel protoVessel = new ProtoVessel(node, HighLogic.CurrentGame);
         double prepared = timer.Elapsed.TotalMilliseconds;
