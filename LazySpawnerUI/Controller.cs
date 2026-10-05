@@ -79,8 +79,6 @@ public class Controller : MonoBehaviour
     private int editorChanges;
     private void OnShipModified(ShipConstruct ship) => editorChanges++;
 
-    // The editor and the space centre have no vessel to be near, and Switch To leaves them for flight.
-    internal static bool OffWorld => InEditor || AtSpaceCentre;
     internal static bool AtSpaceCentre => HighLogic.LoadedScene == GameScenes.SPACECENTER;
 
     // Go to flight with a vessel just spawned. From the editor, keep the craft for when you come back, as launching would.
