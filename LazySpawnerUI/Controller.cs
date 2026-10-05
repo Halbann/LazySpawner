@@ -339,15 +339,20 @@ public class Controller : MonoBehaviour
     internal static string ShortMessage(Exception e) =>
         e is MissingPartsException missing ? missing.ShortMessage : e.Message.Split('\n')[0].TrimEnd(':', ' ');
 
-    // The popup has the whole message.
     private void ShowError(Exception e)
+    {
+        status = ShortMessage(e);
+        statusIsError = true;
+        Popup(e, Loc("Error_Title"));
+    }
+
+    // The popup has the whole message. The title is for what wasn't expected.
+    internal static void Popup(Exception e, string title)
     {
         if (e is not SpawnException)
             UnityEngine.Debug.LogException(e);
 
-        status = ShortMessage(e);
-        statusIsError = true;
-        PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", (e as SpawnException)?.title ?? Loc("Error_Title"), e.Message, KSP.Localization.Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
+        PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), "LazySpawnerError", (e as SpawnException)?.title ?? title, e.Message, KSP.Localization.Localizer.Format("#autoLOC_417274"), false, HighLogic.UISkin);
     }
 
     // Previews can't be random, or they'd jump about every frame.

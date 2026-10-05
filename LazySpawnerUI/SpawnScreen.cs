@@ -12,7 +12,11 @@ namespace LazySpawner;
 [KSPAddon(KSPAddon.Startup.MainMenu, true)]
 internal class SpawnScreenRegistration : MonoBehaviour
 {
-    protected void Start() => DebugUI.AddScreen<SpawnScreen>("Cheats", Controller.ScreenName, Loc("ScreenName"));
+    protected void Start()
+    {
+        DebugUI.AddScreen<SpawnScreen>("Cheats", Controller.ScreenName, Loc("ScreenName"));
+        DebugUI.AddScreen<SaveScreen>("Cheats", SaveScreen.ScreenName, Loc("SaveScreenName"));
+    }
 }
 
 // The Spawn Vessels screen, under Cheats in the debug console (Alt+F12). It's built from the stock
@@ -105,7 +109,7 @@ public class SpawnScreen : MonoBehaviour
     private RectTransform Page() =>
         Stretch(DebugUI.Column(transform, 3, new RectOffset(4, 4, 4, 4)));
 
-    private static RectTransform Stretch(RectTransform rect)
+    internal static RectTransform Stretch(RectTransform rect)
     {
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.one;
@@ -146,7 +150,7 @@ public class SpawnScreen : MonoBehaviour
     }
 
     // Every row of the form is a label in the label column, then its controls, so they all line up.
-    private static Transform Line(Transform parent, string label = "", string tooltip = null)
+    internal static Transform Line(Transform parent, string label = "", string tooltip = null)
     {
         Transform row = DebugUI.Row(parent);
         TextMeshProUGUI text = DebugUI.Label(row, label, DebugUI.LabelWidth);
