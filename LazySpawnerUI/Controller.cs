@@ -75,7 +75,8 @@ public class Controller : MonoBehaviour
     internal static bool CanPlace => InFlight || HighLogic.LoadedScene is GameScenes.TRACKSTATION or GameScenes.SPACECENTER;
 
     // In the editor, it's the craft being edited that's spawned, into orbit or on a launch site.
-    internal static bool InEditor => HighLogic.LoadedSceneIsEditor;
+    // The editor itself, not the scene flag, which is set as soon as it's asked for, while the old scene is still running.
+    internal static bool InEditor => EditorLogic.fetch != null;
     private int editorChanges;
     private void OnShipModified(ShipConstruct ship) => editorChanges++;
 
