@@ -229,8 +229,8 @@ public class SpawnScreen : MonoBehaviour
         DebugUI.Tooltip(modes[0], Loc("Mode_Place_Tooltip"));
         Enable(modes[1], () => Controller.InFlight);
         DebugUI.Tooltip(modes[1], Loc("Mode_Nearby_Tooltip"));
-        Show(modes[0], () => !Controller.InEditor);
-        Show(modes[1], () => !Controller.InEditor);
+        Show(modes[0], () => !Controller.OffWorld);
+        Show(modes[1], () => !Controller.OffWorld);
         DebugUI.Spacer(content, 2);
 
         Transform place = Panel(content, () => Controller.situationMode == Controller.SituationMode.Place);
@@ -291,8 +291,8 @@ public class SpawnScreen : MonoBehaviour
         // What happened, with what can be done about it alongside.
         Transform result = DebugUI.Row(Show(DebugUI.Box(content), () => C.status != ""), 6);
         Text(DebugUI.Paragraph(result), () => C.statusIsError ? orange + C.status : C.status);
-        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => { if (Controller.InEditor) Controller.FlyFromEditor(LastSpawned()); else FlightGlobals.ForceSetActiveVessel(LastSpawned().vesselRef); }, 80),
-            () => LastSpawned() != null && (Controller.InEditor || HighLogic.LoadedSceneIsFlight && LastSpawned().vesselRef != FlightGlobals.ActiveVessel));
+        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => { if (Controller.OffWorld) Controller.Fly(LastSpawned()); else FlightGlobals.ForceSetActiveVessel(LastSpawned().vesselRef); }, 80),
+            () => LastSpawned() != null && (Controller.OffWorld || HighLogic.LoadedSceneIsFlight && LastSpawned().vesselRef != FlightGlobals.ActiveVessel));
         Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
         DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));
         Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? Loc("Button_Undo") : Loc("Button_UndoCount", Removable()));

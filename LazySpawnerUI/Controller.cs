@@ -12,7 +12,7 @@ using Random = UnityEngine.Random;
 namespace LazySpawner;
 
 // What to spawn, where, and with whom, and the spawning itself. The screen in the debug console shows it,
-// and the placement tool points at places for it. Lives in flight and the tracking station.
+// and the placement tool points at places for it. Lives in every scene of a game.
 [Settings(category = "UI")]
 [KSPAddon(KSPAddon.Startup.AllGameScenes, false)]
 public class Controller : MonoBehaviour
@@ -79,12 +79,18 @@ public class Controller : MonoBehaviour
     private int editorChanges;
     private void OnShipModified(ShipConstruct ship) => editorChanges++;
 
-    // Leave the editor to fly a vessel spawned from it, keeping the craft for when you come back, as launching would.
-    internal static void FlyFromEditor(ProtoVessel spawned)
+    // The editor and the space centre have no world to point at or vessel to be near, so they only spawn into
+    // orbit or on a launch site, and Switch To leaves for flight.
+    internal static bool OffWorld => InEditor || HighLogic.LoadedScene == GameScenes.SPACECENTER;
+
+    // Go to flight with a vessel just spawned. From the editor, keep the craft for when you come back, as launching would.
+    // Saving makes the save's vessels afresh from the scene's, which keep theirs when they aren't loaded.
+    internal static void Fly(ProtoVessel spawned)
     {
-        ShipConstruction.ShipConfig = EditorLogic.fetch.ship.SaveShip();
+        if (InEditor)
+            ShipConstruction.ShipConfig = EditorLogic.fetch.ship.SaveShip();
         GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE, GameScenes.FLIGHT);
-        FlightDriver.StartAndFocusVessel("persistent", HighLogic.CurrentGame.flightState.protoVessels.IndexOf(spawned));
+        FlightDriver.StartAndFocusVessel("persistent", HighLogic.CurrentGame.flightState.protoVessels.IndexOf(spawned.vesselRef?.protoVessel ?? spawned));
     }
 
     // Open a craft in its editor, saving the game first, as leaving flight does.
@@ -101,7 +107,7 @@ public class Controller : MonoBehaviour
 
     protected void Awake()
     {
-        if (!HighLogic.LoadedSceneIsFlight && HighLogic.LoadedScene != GameScenes.TRACKSTATION && !InEditor)
+        if (!HighLogic.LoadedSceneIsGame)
         {
             Destroy(this);
             return;
@@ -119,11 +125,14 @@ public class Controller : MonoBehaviour
         // Fields that parse into game objects need the game to have loaded first.
         body.Refresh();
 
-        // There's nothing to be near in the tracking station, and nowhere to point in the editor.
+        // There's nothing to be near in the tracking station, and nowhere to point in the editor or at the space centre,
+        // where there's nothing to clone either.
         if (HighLogic.LoadedScene == GameScenes.TRACKSTATION && situationMode == SituationMode.Nearby)
             situationMode.Value = SituationMode.Place;
-        if (InEditor && (situationMode == SituationMode.Nearby || situationMode == SituationMode.Place))
+        if (OffWorld && (situationMode == SituationMode.Nearby || situationMode == SituationMode.Place))
             situationMode.Value = SituationMode.Orbit;
+        if (HighLogic.LoadedScene == GameScenes.SPACECENTER)
+            source.Value = Source.Craft;
 
         GameEvents.onEditorShipModified.Add(OnShipModified);
         GameEvents.onVesselChange.Add(OnVesselChange);

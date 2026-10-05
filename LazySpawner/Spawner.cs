@@ -1,3 +1,4 @@
+using KSP.UI.Screens;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -32,7 +33,7 @@ public struct CrewSettings
     }
 }
 
-// Stamps out copies of a VesselTemplate as new, unloaded vessels, in flight or the tracking station.
+// Stamps out copies of a VesselTemplate as new, unloaded vessels, in any scene of a game.
 // The vessels load normally when they come into range of the active vessel.
 public static class Spawner
 {
@@ -362,6 +363,10 @@ public static class Spawner
 
         if (protoVessel.vesselRef != null)
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
+
+        // The space centre's markers for vessels landed there are only made afresh when one goes.
+        if (KSCVesselMarkers.fetch != null)
+            KSCVesselMarkers.fetch.RefreshMarkers();
     }
 
     // Where a vessel would appear, right now, and how it would be turned: its root part's world position
@@ -407,7 +412,7 @@ public static class Spawner
 
         double terrain = body.TerrainAltitude(latitude, longitude, allowNegative: true);
 
-        if (HighLogic.LoadedSceneIsFlight && body == FlightGlobals.currentMainBody)
+        if ((HighLogic.LoadedSceneIsFlight || HighLogic.LoadedScene == GameScenes.SPACECENTER) && body == FlightGlobals.currentMainBody)
         {
             const float height = 3000;
             Vector3d up = body.GetSurfaceNVector(latitude, longitude);
