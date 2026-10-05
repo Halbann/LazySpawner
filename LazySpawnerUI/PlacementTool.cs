@@ -14,7 +14,7 @@ namespace LazySpawner;
 // - Orbit, map view: the orbit, with a marker for each vessel.
 //
 // Placing, after pressing Place, goes by whatever is under the mouse:
-// - Flight view, the ground: the ghost follows the mouse over the terrain.
+// - Flight view or the space centre, the ground: the ghost follows the mouse over the terrain.
 // - Flight view, the sky: the ghost follows the mouse around the active vessel, unless that's near the ground.
 // - Map view, a planet or moon: a marker follows the mouse over it.
 // - Map view, space: a circular orbit through the mouse.
@@ -189,6 +189,7 @@ public class PlacementTool : MonoBehaviour
     #region Placing
 
     // Null if the mouse isn't on the ground, and the active vessel is far enough off it to place beside it instead.
+    // The space centre has no active vessel, only the ground around it, on whichever world it's on.
     private List<SpawnSituation> PlaceOnGround(VesselTemplate template)
     {
         kind = Kind.Landed;
@@ -196,9 +197,9 @@ public class PlacementTool : MonoBehaviour
 
         // Nearby ground has colliders, buildings and all. Further away there's only the terrain. From high up,
         // pointing off the ground is for placing beside the vessel.
-        CelestialBody body = active.mainBody;
+        CelestialBody body = FlightGlobals.currentMainBody;
         Ray ray = FlightCamera.fetch.mainCamera.ScreenPointToRay(Input.mousePosition);
-        bool nearGround = active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude <= 2000;
+        bool nearGround = active == null || active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude <= 2000;
         bool collider = Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore);
         double distance = 0;
         if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
@@ -206,8 +207,9 @@ public class PlacementTool : MonoBehaviour
             if (!nearGround)
                 return null;
 
-            // Ground further away than ghosts are drawn is for the map.
-            placeInfo = Loc(RaySphere(ray.origin - body.position, ray.direction, body.Radius, out _, out _) ? "Placing_TooFar" : "Placing_PointAtGround");
+            // Ground further away than ghosts are drawn is for the map, which the space centre doesn't have.
+            placeInfo = Loc(!RaySphere(ray.origin - body.position, ray.direction, body.Radius, out _, out _) ? "Placing_PointAtGround"
+                : active == null ? "Placing_TooFar_SpaceCentre" : "Placing_TooFar");
             return new List<SpawnSituation>();
         }
 

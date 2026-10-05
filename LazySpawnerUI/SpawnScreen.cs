@@ -39,8 +39,17 @@ public class SpawnScreen : MonoBehaviour
 
     #region Lifecycle
 
-    // Built in Start rather than Awake, so that after a hot reload it's rebuilt by the new code.
+    // Built in Start rather than Awake, so that after a hot reload it's rebuilt by the new code. The screen
+    // outlives scenes, so it's rebuilt for each, and what depends on the scene is decided as it's built.
     protected void Start()
+    {
+        Build(HighLogic.LoadedScene);
+        GameEvents.onLevelWasLoaded.Add(Build);
+    }
+
+    protected void OnDestroy() => GameEvents.onLevelWasLoaded.Remove(Build);
+
+    private void Build(GameScenes scene)
     {
         instance = this;
         // A hot reload copies these across, full of the old screen's widgets.
@@ -226,10 +235,10 @@ public class SpawnScreen : MonoBehaviour
         DebugUI.Heading(content, Loc("Heading_Where"));
         Button[] modes = Tabs(content, Controller.situationMode, Loc("Mode_Place"), Loc("Mode_Nearby"), Loc("Mode_Orbit"), Loc("Mode_LaunchSite"));
         Enable(modes[0], () => Controller.CanPlace);
-        DebugUI.Tooltip(modes[0], Loc("Mode_Place_Tooltip"));
+        DebugUI.Tooltip(modes[0], Loc(Controller.AtSpaceCentre ? "Mode_Place_Tooltip_SpaceCentre" : "Mode_Place_Tooltip"));
         Enable(modes[1], () => Controller.InFlight);
         DebugUI.Tooltip(modes[1], Loc("Mode_Nearby_Tooltip"));
-        Show(modes[0], () => !Controller.OffWorld);
+        Show(modes[0], () => !Controller.InEditor);
         Show(modes[1], () => !Controller.OffWorld);
         DebugUI.Spacer(content, 2);
 
@@ -281,10 +290,11 @@ public class SpawnScreen : MonoBehaviour
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
         // Where to click, or that the editor stays open.
         KSP.UI.TooltipTypes.TooltipController_Text spawnTooltip = DebugUI.Tooltip(spawn, "").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
+        string placeTooltip = Loc(Controller.AtSpaceCentre ? "Button_Place_Tooltip_SpaceCentre" : "Button_Place_Tooltip"), editorTooltip = Loc("Button_Spawn_Editor_Tooltip");
         refresh.Add(() =>
         {
             spawnTooltip.enabled = placing() || Controller.InEditor;
-            spawnTooltip.textString = Loc(placing() ? "Button_Place_Tooltip" : "Button_Spawn_Editor_Tooltip");
+            spawnTooltip.textString = placing() ? placeTooltip : editorTooltip;
         });
         DebugUI.Spacer(content);
 

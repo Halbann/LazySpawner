@@ -34,7 +34,7 @@ public class Controller : MonoBehaviour
     public enum SituationMode { Place, Nearby, Orbit, LaunchSite }
     public static readonly Setting<SituationMode> situationMode = SituationMode.Place;
     public static readonly Setting<bool> randomRotation = false;
-    public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "Kerbin", parser: FindBody);
+    public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "", parser: FindBody);
 
     // Nearby.
     public static readonly TextField<float> range = new TextField<float>("Range", "100", r => r >= 0);
@@ -72,16 +72,16 @@ public class Controller : MonoBehaviour
 
     internal static bool InFlight => HighLogic.LoadedSceneIsFlight && FlightGlobals.ActiveVessel != null;
 
-    internal static bool CanPlace => InFlight || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+    internal static bool CanPlace => InFlight || HighLogic.LoadedScene is GameScenes.TRACKSTATION or GameScenes.SPACECENTER;
 
     // In the editor, it's the craft being edited that's spawned, into orbit or on a launch site.
     internal static bool InEditor => HighLogic.LoadedSceneIsEditor;
     private int editorChanges;
     private void OnShipModified(ShipConstruct ship) => editorChanges++;
 
-    // The editor and the space centre have no world to point at or vessel to be near, so they only spawn into
-    // orbit or on a launch site, and Switch To leaves for flight.
-    internal static bool OffWorld => InEditor || HighLogic.LoadedScene == GameScenes.SPACECENTER;
+    // The editor and the space centre have no vessel to be near, and Switch To leaves them for flight.
+    internal static bool OffWorld => InEditor || AtSpaceCentre;
+    internal static bool AtSpaceCentre => HighLogic.LoadedScene == GameScenes.SPACECENTER;
 
     // Go to flight with a vessel just spawned. From the editor, keep the craft for when you come back, as launching would.
     // Saving makes the save's vessels afresh from the scene's, which keep theirs when they aren't loaded.
@@ -125,13 +125,12 @@ public class Controller : MonoBehaviour
         // Fields that parse into game objects need the game to have loaded first.
         body.Refresh();
 
-        // There's nothing to be near in the tracking station, and nowhere to point in the editor or at the space centre,
-        // where there's nothing to clone either.
-        if (HighLogic.LoadedScene == GameScenes.TRACKSTATION && situationMode == SituationMode.Nearby)
+        // There's nothing to be near outside flight, nowhere to point in the editor, and nothing to clone at the space centre.
+        if (!HighLogic.LoadedSceneIsFlight && situationMode == SituationMode.Nearby)
             situationMode.Value = SituationMode.Place;
-        if (OffWorld && (situationMode == SituationMode.Nearby || situationMode == SituationMode.Place))
+        if (InEditor && situationMode == SituationMode.Place)
             situationMode.Value = SituationMode.Orbit;
-        if (HighLogic.LoadedScene == GameScenes.SPACECENTER)
+        if (AtSpaceCentre)
             source.Value = Source.Craft;
 
         GameEvents.onEditorShipModified.Add(OnShipModified);
@@ -392,10 +391,11 @@ public class Controller : MonoBehaviour
             return new Orbit(inclination, 0, b.Radius + altitude, 0, 0, meanAnomalyOffset * Mathf.Deg2Rad, UT, b);
     }
 
+    // None yet is the home world, whichever that is.
     private static CelestialBody FindBody(string name)
     {
         name = name.Trim();
-        return FlightGlobals.Bodies.Find(b => b.bodyName.Equals(name, StringComparison.OrdinalIgnoreCase)
+        return name == "" ? FlightGlobals.GetHomeBody() : FlightGlobals.Bodies.Find(b => b.bodyName.Equals(name, StringComparison.OrdinalIgnoreCase)
             || b.displayName.LocalizeRemoveGender().Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
