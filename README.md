@@ -1,3 +1,5 @@
+<img src="Screenshots/Banner.jpg" alt="A placement ghost among rows of spawned planes">
+
 KSP mod for spawning vessels individually and en masse in a variety of ways from flight, the tracking station, the KSC or the SPH/VAB.
 
 Press Alt+F, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
@@ -11,6 +13,16 @@ Press Alt+F, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessel
 - Select how they should be crewed, hiring kerbals if needed.
 - You can always undo the previous spawn.
 - Save the current vessel as a craft file via Cheats > Save Vessel.
+
+<details>
+<summary>Screenshots</summary>
+
+<p><img src="Screenshots/Place-Vessels.jpg" width="36.42%" alt="The Spawn Vessels window"> <img src="Screenshots/Map-View-Surface.jpg" width="62.08%" alt="Placing a rover on Duna from map view"></p>
+<p><img src="Screenshots/Map-view.jpg" width="52.24%" alt="Placing a station in orbit from map view"> <img src="Screenshots/Constellation.jpg" width="46.26%" alt="Ten satellites spread evenly in a polar orbit"></p>
+<p><img src="Screenshots/Roof.jpg" width="46.64%" alt="Four rockets placed on a roof at the KSC"> <img src="Screenshots/Editor.jpg" width="51.86%" alt="Spawning the craft being edited into orbit"></p>
+<p><img src="Screenshots/Save-Vessel.jpg" width="47.07%" alt="The Save Vessel window"> <img src="Screenshots/Save-Vessel-Result.jpg" width="51.43%" alt="The saved vessel in the SPH"></p>
+
+</details>
 
 ### For modders
 
