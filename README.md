@@ -46,7 +46,7 @@ StartCoroutine(Spawner.SpawnAll(template, situations, crew, spawned)); // Severa
 Spawner.Remove(rover); // Undo.
 ```
 
-`CraftSaver` turns a loaded vessel back into a craft file.
+`CraftSaver` can turn a loaded vessel back into a craft file, with some limitations.
 
 ```csharp
 EditorFacility facility = CraftSaver.Facility(vessel); // The VAB or SPH it was launched from, or a guess from its vessel type.
