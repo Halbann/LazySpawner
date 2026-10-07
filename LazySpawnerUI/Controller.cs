@@ -49,6 +49,10 @@ public class Controller : MonoBehaviour
     public static readonly TextField<double> argPe = new TextField<double>("ArgumentOfPeriapsis", "0");
     public static readonly TextField<double> meanAnomaly = new TextField<double>("MeanAnomaly", "0");
     public static readonly Setting<bool> spreadAlongOrbit = true;
+    public static readonly Setting<bool> spreadNodes = false;
+    // Around the equator, the node is just more of the way around the orbit.
+    internal static bool SpreadingPlanes => spreadNodes && inclination.value != 0;
+    internal static bool Polar => Math.Abs(inclination.value % 180) == 90;
 
     // Launch site, by name.
     public static readonly Setting<string> launchSite = "";
@@ -373,9 +377,11 @@ public class Controller : MonoBehaviour
                     throw new SpawnException(Loc("Error_NoBody", body.Text));
 
                 Orbit reference = CreateOrbit(0);
-                bool spread = spreadAlongOrbit && reference.eccentricity < 1;
+                bool spread = spreadAlongOrbit && reference.eccentricity < 1, planes = SpreadingPlanes;
+                // Over the poles, the opposite node is the same plane flown backwards, so polar planes only go halfway round.
+                double nodeSpan = Polar ? 180 : 360;
                 return Enumerable.Range(0, number).Select(i => SpawnSituation.Orbiting(
-                    spread ? CreateOrbit(360.0 * i / number) : Formations.Cluster(reference, template, i, randomRotation),
+                    spread || planes ? CreateOrbit(spread ? 360.0 * i / number : 0, planes ? nodeSpan * i / number : 0) : Formations.Cluster(reference, template, i, randomRotation),
                     randomRotation && !preview ? Random.rotation : null)).ToList();
 
             default:
@@ -383,16 +389,16 @@ public class Controller : MonoBehaviour
         }
     }
 
-    internal static Orbit CreateOrbit(double meanAnomalyOffset)
+    internal static Orbit CreateOrbit(double meanAnomalyOffset, double lanOffset = 0)
     {
         CelestialBody b = body.value;
         double UT = Planetarium.GetUniversalTime();
 
         // The epoch is now, so that the mean anomaly is where the vessel is when it appears.
         if (advancedOrbit)
-            return new Orbit(inclination, eccentricity, sma, lan, argPe, (meanAnomaly + meanAnomalyOffset) * Mathf.Deg2Rad, UT, b);
+            return new Orbit(inclination, eccentricity, sma, lan + lanOffset, argPe, (meanAnomaly + meanAnomalyOffset) * Mathf.Deg2Rad, UT, b);
         else
-            return new Orbit(inclination, 0, b.Radius + altitude, 0, 0, meanAnomalyOffset * Mathf.Deg2Rad, UT, b);
+            return new Orbit(inclination, 0, b.Radius + altitude, lanOffset, 0, meanAnomalyOffset * Mathf.Deg2Rad, UT, b);
     }
 
     // None yet is the home world, whichever that is.

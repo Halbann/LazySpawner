@@ -38,8 +38,8 @@ public class PlacementTool : MonoBehaviour
     private readonly List<Ghost> ghosts = new List<Ghost>();
 
     // Map view.
-    private OrbitRenderer orbitRenderer;
-    private OrbitDriver orbitDriver;
+    private const int maxOrbitLines = 25;
+    private readonly List<OrbitRenderer> orbitLines = new List<OrbitRenderer>();
     // World positions, turned into screen positions as late as possible so they keep up with the camera.
     private readonly List<(Vector3d position, CelestialBody body)> markers = new List<(Vector3d, CelestialBody)>();
     private static Texture2D markerTexture;
@@ -66,8 +66,9 @@ public class PlacementTool : MonoBehaviour
         Stop();
         ClearGhosts();
 
-        if (orbitRenderer != null)
-            Destroy(orbitRenderer.gameObject);
+        foreach (OrbitRenderer line in orbitLines)
+            if (line != null)
+                Destroy(line.gameObject);
     }
 
     // Keep the camera, lose everything that would react to the clicks and keys.
@@ -116,7 +117,7 @@ public class PlacementTool : MonoBehaviour
                 markers.AddRange(shown.Select(Marker));
 
             ShowGhosts(template, map ? null : shown);
-            DrawOrbit(map && shown?.Count > 0 && !shown[0].landed ? shown[0].orbit : null);
+            DrawOrbits(map ? shown : null);
         }
         catch (Exception e)
         {
@@ -520,44 +521,63 @@ public class PlacementTool : MonoBehaviour
     // Drawn by the stock orbit renderer, the way contracts draw their target orbits, so the preview
     // takes exactly the same path as every other orbit line: same camera, same frame, same timing.
     // It's the stock component itself rather than a subclass, because Unity's script execution
-    // order is set per class, and the timing is the whole point. No orbit hides it.
-    private void DrawOrbit(Orbit orbit)
+    // order is set per class, and the timing is the whole point. One line for each plane: vessels spread
+    // around an orbit or flying together share one. The unused lines are hidden.
+    private void DrawOrbits(List<SpawnSituation> shown)
     {
-        if (orbit == null)
+        int drawn = 0;
+        bool SamePlane(Orbit orbit)
         {
-            if (orbitRenderer != null)
-                orbitRenderer.drawMode = OrbitRendererBase.DrawMode.OFF;
-            return;
+            for (int i = 0; i < drawn; i++)
+                if (Vector3d.Angle(orbitLines[i].driver.orbit.GetOrbitNormal(), orbit.GetOrbitNormal()) < 1)
+                    return true;
+            return false;
         }
 
-        if (orbitRenderer == null)
-        {
-            GameObject line = new GameObject("LazySpawner Orbit Preview");
-            if (ScaledSpace.Instance != null)
-                line.transform.parent = ScaledSpace.Instance.transform;
+        if (shown != null)
+            foreach (SpawnSituation situation in shown)
+            {
+                if (drawn == maxOrbitLines)
+                    break;
+                if (situation.landed || SamePlane(situation.orbit))
+                    continue;
 
-            // A driver that doesn't drive, just holds the orbit.
-            orbitDriver = line.AddComponent<OrbitDriver>();
-            orbitDriver.orbit = orbit;
-            orbitDriver.enabled = false;
+                if (drawn == orbitLines.Count)
+                    orbitLines.Add(CreateOrbitLine());
+                // An orbit made from its elements doesn't know where along it the vessel is yet, which the line fades from.
+                situation.orbit.UpdateFromUT(Planetarium.GetUniversalTime());
+                orbitLines[drawn].driver.orbit = situation.orbit;
+                orbitLines[drawn++].drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+            }
 
-            orbitRenderer = line.AddComponent<OrbitRenderer>();
-            orbitRenderer.driver = orbitDriver;
-            orbitDriver.Renderer = orbitRenderer;
+        for (int i = drawn; i < orbitLines.Count; i++)
+            orbitLines[i].drawMode = OrbitRendererBase.DrawMode.OFF;
+    }
 
-            // Like a vessel's orbit, the line is brightest where the (first) vessel will be.
-            orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-            orbitRenderer.drawNodes = false;
-            orbitRenderer.autoTextureOffset = true;
+    private static OrbitRenderer CreateOrbitLine()
+    {
+        GameObject line = new GameObject("LazySpawner Orbit Preview");
+        if (ScaledSpace.Instance != null)
+            line.transform.parent = ScaledSpace.Instance.transform;
 
-            // Orbit lines are drawn at half their node colour. Never fade out with zoom.
-            orbitRenderer.nodeColor = new Color(0.3f, 1.2f, 2f, 1f);
-            orbitRenderer.lowerCamVsSmaRatio = 0;
-            orbitRenderer.upperCamVsSmaRatio = float.MaxValue;
-        }
+        // A driver that doesn't drive, just holds the orbit.
+        OrbitDriver driver = line.AddComponent<OrbitDriver>();
+        driver.enabled = false;
 
-        orbitDriver.orbit = orbit;
-        orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+        OrbitRenderer renderer = line.AddComponent<OrbitRenderer>();
+        renderer.driver = driver;
+        driver.Renderer = renderer;
+
+        // Like a vessel's orbit, the line is brightest where the (first) vessel on it will be.
+        renderer.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+        renderer.drawNodes = false;
+        renderer.autoTextureOffset = true;
+
+        // Orbit lines are drawn at half their node colour. Never fade out with zoom.
+        renderer.nodeColor = new Color(0.3f, 1.2f, 2f, 1f);
+        renderer.lowerCamVsSmaRatio = 0;
+        renderer.upperCamVsSmaRatio = float.MaxValue;
+        return renderer;
     }
 
     #endregion

@@ -267,6 +267,7 @@ public class SpawnScreen : MonoBehaviour
         Enable(DebugUI.Button(match, Loc("Orbit_MatchTarget"), () => Controller.SetOrbit(FlightGlobals.fetch.VesselTarget.GetOrbit()), half), () => Controller.InFlight && FlightGlobals.fetch.VesselTarget?.GetOrbit() != null);
         Toggle(orbit, Loc("Orbit_Advanced"), Controller.advancedOrbit, Loc("Orbit_Advanced_Tooltip"));
         Toggle(orbit, Loc("Orbit_Spread"), Controller.spreadAlongOrbit, Loc("Orbit_Spread_Tooltip"), () => Controller.count.value > 1);
+        Toggle(orbit, Loc("Orbit_SpreadNodes"), Controller.spreadNodes, Loc("Orbit_SpreadNodes_Tooltip"), () => Controller.count.value > 1 && Controller.inclination.value != 0);
         Toggle(orbit, Loc("RandomRotation"), Controller.randomRotation);
 
         SitePicker(Panel(content, () => Controller.situationMode == Controller.SituationMode.LaunchSite));
@@ -490,6 +491,11 @@ public class SpawnScreen : MonoBehaviour
                     warnings.Add(Loc("Summary_InAtmosphere"));
                 if (orbit.eccentricity < 1 && orbit.ApR > body.sphereOfInfluence)
                     warnings.Add(Loc("Summary_LeavesSOI", bodyName));
+
+                // Separate planes cross. Polar ones all cross at the poles, and inclined ones in pairs at the equator.
+                bool spread = Controller.spreadAlongOrbit && orbit.eccentricity < 1;
+                if (Controller.count.value > 1 && Controller.SpreadingPlanes && (Controller.Polar ? !spread : spread && Controller.count.value % 2 == 0))
+                    warnings.Add(Loc(Controller.Polar ? "Summary_MeetAtPoles" : "Summary_MeetAtEquator", Loc("Orbit_Spread")));
 
                 // The simple fields say it all. The elements don't make the shape obvious.
                 if (!Controller.advancedOrbit)
