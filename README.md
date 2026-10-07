@@ -14,6 +14,8 @@ Press Alt+F, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessel
 - You can always undo the previous spawn.
 - Save the current vessel as a craft file via Cheats > Save Vessel.
 
+[Demo Video](https://www.youtube.com/watch?v=11mhGMqoklo)
+
 <details>
 <summary>Screenshots</summary>
 
