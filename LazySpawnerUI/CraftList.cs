@@ -1,3 +1,4 @@
+using Expansions;
 using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
@@ -14,6 +15,8 @@ internal class Craft
     public string name; // The file's name, as the stock craft browser shows it.
     public string facility; // VAB or SPH
     public string save; // The save it's in, or null for the game's own craft and craft from elsewhere.
+    public string expansion; // The expansion it comes with, like Breaking Ground.
+    public string ships; // The Ships folder it's in. Null for craft from elsewhere.
     public string folder; // Where it is in its Ships folder, like VAB\Drones. Null for craft from elsewhere.
     public DateTime modified;
 
@@ -25,7 +28,7 @@ internal class Craft
 
     // What searching looks through: its name, and where it is.
     private string searchText;
-    public string SearchText => searchText ??= $"{DisplayName} {folder} {save}";
+    public string SearchText => searchText ??= $"{DisplayName} {folder} {save} {expansion}";
 
     // What's in the craft is only read when it's first needed: in a list, when its row comes into view.
     private bool detailed;
@@ -127,7 +130,7 @@ internal static class CraftList
 
         string root = Root;
         string saves = Path.Combine(root, "saves");
-        IEnumerable<string> ships = from == Source.Stock ? new[] { Path.Combine(root, "Ships") }
+        IEnumerable<string> ships = from == Source.Stock ? ExpansionsLoader.GetInstalledExpansions().Select(e => Path.Combine(root, "GameData", "SquadExpansion", e.FolderName, "Ships")).Prepend(Path.Combine(root, "Ships"))
             : from == Source.AllSaves ? Directory.GetDirectories(saves).Select(save => Path.Combine(save, "Ships"))
             : HighLogic.SaveFolder != null ? new[] { Path.Combine(saves, HighLogic.SaveFolder, "Ships") }
             : new string[0];
@@ -164,7 +167,8 @@ internal static class CraftList
         return known.TryGetValue(path, out Craft craft) ? craft : known[path] = Create(path, File.GetLastWriteTime(path));
     }
 
-    // Where a craft is: the game's Ships/VAB/..., a save's saves/<save>/Ships/VAB/..., or anywhere else.
+    // Where a craft is: the game's Ships/VAB/..., an expansion's GameData/SquadExpansion/<expansion>/Ships/VAB/...,
+    // a save's saves/<save>/Ships/VAB/..., or anywhere else.
     private static Craft Create(string path, DateTime modified)
     {
         Craft craft = new Craft { path = path, name = Path.GetFileNameWithoutExtension(path), modified = modified };
@@ -172,10 +176,12 @@ internal static class CraftList
         string[] folders = path.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(path).Substring(root.Length).Split(Path.DirectorySeparatorChar) : new string[0];
         bool Is(int i, string name) => folders.Length > i && string.Equals(folders[i], name, StringComparison.OrdinalIgnoreCase);
 
-        int ships = Is(0, "Ships") ? 0 : Is(0, "saves") && Is(2, "Ships") ? 2 : -1;
+        int ships = Is(0, "Ships") ? 0 : Is(0, "saves") && Is(2, "Ships") ? 2 : Is(0, "GameData") && Is(1, "SquadExpansion") && Is(3, "Ships") ? 3 : -1;
         if (ships >= 0 && (Is(ships + 1, "VAB") || Is(ships + 1, "SPH")))
         {
             craft.save = ships == 2 ? folders[1] : null;
+            craft.expansion = ships == 3 ? ExpansionsLoader.GetInstalledExpansions().Find(e => Is(2, e.FolderName))?.DisplayName ?? folders[2] : null;
+            craft.ships = Path.Combine(root, string.Join(Path.DirectorySeparatorChar.ToString(), folders, 0, ships + 1));
             craft.facility = folders[ships + 1].ToUpperInvariant();
             craft.folder = string.Join(Path.DirectorySeparatorChar.ToString(), folders, ships + 1, folders.Length - ships - 1);
         }
@@ -193,7 +199,7 @@ internal static class CraftList
     // it's from.
     public static string ThumbnailPath(Craft craft) =>
         craft.Elsewhere ? null
-        : craft.save == null ? Path.Combine(KSPUtil.ApplicationRootPath, $"Ships/@thumbs/{craft.facility}/{KSPUtil.SanitizeFilename(craft.name)}.png")
+        : craft.save == null ? Path.Combine(craft.ships, "@thumbs", craft.facility, KSPUtil.SanitizeFilename(craft.name) + ".png")
         : Path.Combine(KSPUtil.ApplicationRootPath, "thumbs/" + ShipConstruction.GetPlayerCraftThumbnailName(craft.save, Path.DirectorySeparatorChar + craft.folder, craft.name) + ".png");
 
     // The craft file some text is a path to, if it is. Paths copied from Explorer or Everything often come quoted.

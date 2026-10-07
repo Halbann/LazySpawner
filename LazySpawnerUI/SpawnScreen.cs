@@ -392,7 +392,7 @@ public class SpawnScreen : MonoBehaviour
     // VAB\Drones, and whose it is when it's not this save's.
     private static string Location(Craft craft) =>
         craft.Elsewhere ? Loc("Craft_Elsewhere")
-        : craft.save == null ? $"{craft.folder} · {Loc("Craft_Stock")}"
+        : craft.save == null ? $"{craft.folder} · {craft.expansion ?? Loc("Craft_Stock")}"
         : craft.save != HighLogic.SaveFolder ? $"{craft.folder} · {craft.save}"
         : craft.folder;
 
