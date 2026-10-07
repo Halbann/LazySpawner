@@ -197,10 +197,11 @@ public class PlacementTool : MonoBehaviour
         Vessel active = FlightGlobals.ActiveVessel;
 
         // Nearby ground has colliders, buildings and all. Further away there's only the terrain. From high up,
-        // pointing off the ground is for placing beside the vessel.
+        // or in orbit however low, pointing off the ground is for placing beside the vessel.
         CelestialBody body = FlightGlobals.currentMainBody;
         Ray ray = FlightCamera.fetch.mainCamera.ScreenPointToRay(Input.mousePosition);
-        bool nearGround = active == null || active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH || active.radarAltitude <= 2000;
+        bool nearGround = active == null || active.LandedOrSplashed || active.situation == Vessel.Situations.PRELAUNCH
+            || active.situation is not (Vessel.Situations.ORBITING or Vessel.Situations.ESCAPING) && active.radarAltitude <= 2000;
         bool collider = Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore);
         double distance = 0;
         if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
