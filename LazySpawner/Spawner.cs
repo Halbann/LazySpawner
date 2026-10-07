@@ -353,8 +353,11 @@ public static class Spawner
         protoVessel.skipGroundPositioning = splashed;
         protoVessel.vesselSpawning = landed;
 
-        // Landed vessels still have an orbit, which is just the ground moving under them.
-        protoVessel.orbitSnapShot = new OrbitSnapshot(landed ? Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT) : situation.orbit);
+        // Landed vessels still have an orbit, which is just the ground moving under them. On rails, KSP puts a
+        // vessel's centre of mass on its orbit, not its root part, so an orbit for the root would move it.
+        protoVessel.CoM = CentreOfMass(protoVessel);
+        protoVessel.orbitSnapShot = new OrbitSnapshot(landed ? Placement.OrbitFromWorldState(body, position, body.getRFrmVel(position), UT)
+            : Placement.OrbitFromWorldState(body, position + (Vector3d)(rotation * protoVessel.CoM), situation.orbit.getOrbitalVelocityAtUT(UT).xzy, UT));
 
         // Unloaded vessels keep their rotation relative to the body.
         protoVessel.rotation = Quaternion.Inverse(body.bodyTransform.rotation) * rotation;
@@ -371,6 +374,22 @@ public static class Spawner
         // The space centre's markers for vessels landed there are only made afresh when one goes.
         if (KSCVesselMarkers.fetch != null)
             KSCVesselMarkers.fetch.RefreshMarkers();
+    }
+
+    // Relative to the root part, as KSP works it out from the parts' rigidbodies once they're loaded. Physicsless
+    // parts really count at their parent, but they're light enough not to matter.
+    private static Vector3 CentreOfMass(ProtoVessel protoVessel)
+    {
+        Vector3 sum = Vector3.zero;
+        float total = 0;
+        foreach (ProtoPartSnapshot part in protoVessel.protoPartSnapshots)
+        {
+            float mass = part.mass + (float)part.resources.Sum(r => r.amount * r.definition.density);
+            sum += mass * ((Vector3)part.position + part.rotation * part.partInfo.partPrefab.CoMOffset);
+            total += mass;
+        }
+
+        return total > 0 ? sum / total : Vector3.zero;
     }
 
     // Where a vessel would appear, right now, and how it would be turned: its root part's world position
