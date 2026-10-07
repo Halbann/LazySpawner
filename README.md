@@ -34,7 +34,7 @@ The spawning process itself happens in a fraction of a second and is significant
 
 Craft should spawn exactly as they would if spawned by the stock game, including robotics, staging, action groups, kerbals and the control point.
 
-To use the Lazy Spawner API, reference LazySpawner.dll, add `[assembly: KSPAssemblyDependency("LazySpawner", 1, 1)]`, and list LazySpawner as a dependency.
+To use the Lazy Spawner API, reference LazySpawner.dll, add `[assembly: KSPAssemblyDependency("LazySpawner", 1, 2)]`, and list LazySpawner as a dependency.
 
 ```csharp
 VesselTemplate template = VesselTemplate.FromCraft(path); // Or FromVessel(vessel). You make this once and can use it to spawn the same vessel many times.
