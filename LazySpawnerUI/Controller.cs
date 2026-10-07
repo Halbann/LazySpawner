@@ -138,6 +138,13 @@ public class Controller : MonoBehaviour
 
         GameEvents.onEditorShipModified.Add(OnShipModified);
         GameEvents.onVesselChange.Add(OnVesselChange);
+        GameEvents.OnMapFocusChange.Add(OnMapFocusChange);
+    }
+
+    private void OnMapFocusChange(MapObject focus)
+    {
+        if (focus.celestialBody != null)
+            body.Text = focus.celestialBody.bodyName;
     }
 
     // Switched to the one vessel just spawned: it's plainly there, and there's nothing left to do with it.
@@ -165,6 +172,7 @@ public class Controller : MonoBehaviour
 
         GameEvents.onEditorShipModified.Remove(OnShipModified);
         GameEvents.onVesselChange.Remove(OnVesselChange);
+        GameEvents.OnMapFocusChange.Remove(OnMapFocusChange);
         GlobalSettings.Save();
     }
 
