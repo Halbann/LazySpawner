@@ -1,5 +1,4 @@
-// Vessel bounds from part colliders, after Halban's VesselBounds in Kessler
-// (Q:\Visual Studio\Kessler\Source\KerbalCombatSystems\VesselBounds.cs).
+// Copied from StockCombatAI / Kessler.
 //
 // Bounds are boxes in the vessel's own frame, the root part's transform. Colliders are
 // measured by their eight corners, because a rotated box's size vector isn't its extent.
