@@ -467,8 +467,13 @@ public class PlacementTool : MonoBehaviour
 
     private string InTheAir => placeAltitude > 0 ? " · " + Loc("Placing_InTheAir", Distance(placeAltitude), Airspeed.ToString("F0")) : "";
 
-    private List<SpawnSituation> Row(VesselTemplate template, CelestialBody body, double latitude, double longitude) =>
-        Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, Airspeed);
+    private List<SpawnSituation> Row(VesselTemplate template, CelestialBody body, double latitude, double longitude)
+    {
+        SpawnSituation at = SpawnSituation.Landed(body, latitude, longitude, placeHeading, placeAltitude);
+        (Vector3d position, Quaternion rotation) = Spawner.Pose(template, at);
+        body.GetLatLonAlt(position - (Vector3d)(rotation * template.BoundsFor(!at.Airborne).center), out latitude, out longitude, out _);
+        return Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, Airspeed);
+    }
 
     // What's being placed, and how many.
     private static string Named(VesselTemplate template) => Number > 1 ? Loc("Placing_Several", template.DisplayName, Number) : template.DisplayName;
