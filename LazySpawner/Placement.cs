@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LazySpawner;
 
-// Where and how a vessel should appear: in orbit, or landed on the surface.
+// Where and how a vessel should appear: in orbit, or over a place on the surface, landed or in the air.
 public class SpawnSituation
 {
     public CelestialBody body;
@@ -17,6 +17,12 @@ public class SpawnSituation
     public double longitude;
     public float heading; // Degrees clockwise from north, for the vessel's nose.
 
+    // In the air: metres between the vessel's lowest point and the ground, and how fast it flies along its nose.
+    // It stays put until it's near enough to the active vessel for physics, then flies off with its engines running.
+    public float radarAltitude;
+    public float airspeed;
+    public bool Airborne => landed && radarAltitude > 0;
+
     // World rotation of the part the vessel is controlled from, as the navball sees it.
     // By default, prograde with the roof away from the body in orbit, and upright facing the heading on the ground.
     public Quaternion? rotation;
@@ -28,13 +34,15 @@ public class SpawnSituation
         rotation = rotation,
     };
 
-    public static SpawnSituation Landed(CelestialBody body, double latitude, double longitude, float heading) => new SpawnSituation
+    public static SpawnSituation Landed(CelestialBody body, double latitude, double longitude, float heading, float radarAltitude = 0, float airspeed = 0) => new SpawnSituation
     {
         body = body,
         landed = true,
         latitude = latitude,
         longitude = longitude,
         heading = heading,
+        radarAltitude = radarAltitude,
+        airspeed = airspeed,
     };
 }
 

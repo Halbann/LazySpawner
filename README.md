@@ -40,8 +40,11 @@ To use the Lazy Spawner API, reference LazySpawner.dll, add `[assembly: KSPAssem
 VesselTemplate template = VesselTemplate.FromCraft(path); // Or FromVessel(vessel). You make this once and can use it to spawn the same vessel many times.
 
 // The vessel as the save has it. rover.vesselRef is the vessel itself, except in the editor, where there isn't one yet.
-ProtoVessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading), new CrewSettings(CrewMode.Pilot));
 ProtoVessel probe = Spawner.Spawn(template, SpawnSituation.Orbiting(orbit));
+ProtoVessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading), new CrewSettings(CrewMode.Pilot));
+
+// Spawns airborne with velocity. When the vessel unpacks, a vessel module called AirborneStart turns on engines in the first stage and SAS, sets throttle to 100, turns off brakes, and retracts gear.
+ProtoVessel plane = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading, radarAltitude: 500, airspeed: 100), new CrewSettings(CrewMode.Pilot));
 
 StartCoroutine(Spawner.SpawnAll(template, situations, crew, spawned)); // Several at once, spread over several frames
 

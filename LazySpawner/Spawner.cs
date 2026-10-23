@@ -64,7 +64,7 @@ public static class Spawner
         UpdateRoboticsReferences(node, changedPIDs);
 
         // Rovers and planes shouldn't roll away as soon as they touch the ground.
-        if (situation.landed)
+        if (situation.landed && !situation.Airborne)
             SetBrakes(node);
         // Launch clamps count as touching the ground, which makes the whole vessel "landed", even in orbit.
         else
@@ -96,7 +96,7 @@ public static class Spawner
             throw;
         }
 
-        Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"landed on {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")} in {timer.Elapsed.TotalMilliseconds:F1} ms ({prepared:F1} ms to prepare).");
+        Logger.Log($"Spawned {protoVessel.GetDisplayName()} {(situation.landed ? $"{(situation.Airborne ? $"{situation.radarAltitude:F0} m over" : "landed on")} {situation.body.bodyName} at {situation.latitude:F4}, {situation.longitude:F4}" : $"orbiting {situation.body.bodyName}")} in {timer.Elapsed.TotalMilliseconds:F1} ms ({prepared:F1} ms to prepare).");
 
         return protoVessel;
     }
@@ -337,12 +337,11 @@ public static class Spawner
         protoVessel.displaylandedAt = "";
         protoVessel.PQSminLevel = 0;
         protoVessel.PQSmaxLevel = 0;
-        protoVessel.skipGroundPositioningForDroppedPart = false;
 
         // The root part has no rotation relative to itself.
         Quaternion referenceRelative = protoVessel.protoPartSnapshots.Find(s => s.flightID == protoVessel.refTransform)?.rotation ?? Quaternion.identity;
         (Vector3d position, Quaternion rotation) = GetPose(template, situation, referenceRelative, out double height, out bool splashed);
-        bool landed = situation.landed;
+        bool landed = situation.landed, airborne = situation.Airborne;
 
         body.GetLatLonAlt(position, out protoVessel.latitude, out protoVessel.longitude, out protoVessel.altitude);
         protoVessel.height = (float)height;
@@ -350,8 +349,11 @@ public static class Spawner
         protoVessel.situation = !landed ? Placement.OrbitSituation(situation.orbit) : splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
         protoVessel.landed = landed && !splashed;
         protoVessel.splashed = splashed;
-        protoVessel.skipGroundPositioning = splashed;
-        protoVessel.vesselSpawning = landed;
+        // In the air, it's landed where it is until it flies off, so the ground doesn't come up to meet it.
+        protoVessel.skipGroundPositioning = splashed || airborne;
+        protoVessel.skipGroundPositioningForDroppedPart = airborne;
+        protoVessel.vesselSpawning = landed && !airborne;
+        AirborneStart.Set(protoVessel, airborne ? situation.airspeed : (float?)null);
 
         // Landed vessels still have an orbit, which is just the ground moving under them. On rails, KSP puts a
         // vessel's centre of mass on its orbit, not its root part, so an orbit for the root would move it.
@@ -396,7 +398,11 @@ public static class Spawner
     // and rotation. The part it's controlled from isn't known until the crew are aboard, so this is a
     // good guess rather than a promise. For previews, and for keeping vessels clear of each other.
     public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation) =>
-        GetPose(template, situation, template.ReferenceRotation, out _, out _);
+        Pose(template, situation, out _);
+
+    // On the surface, also how high the root part is over the ground, or the sea.
+    public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation, out double height) =>
+        GetPose(template, situation, template.ReferenceRotation, out height, out _);
 
     private static (Vector3d, Quaternion) GetPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative, out double height, out bool splashed)
     {
@@ -412,15 +418,16 @@ public static class Spawner
         }
 
         double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude);
-        splashed = body.ocean && terrain < 0;
+        bool water = body.ocean && terrain < 0;
+        splashed = water && !situation.Airborne;
 
         Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
         Quaternion rotation = situation.rotation * toRoot ?? FaceHeading(frame * template.UprightRotation, referenceRelative, frame);
 
         // Lift the vessel so its lowest part clears the ground. KSP puts it down properly
         // when it goes off rails, but it should look right before then too.
-        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + 0.5;
-        double altitude = (splashed ? 0 : terrain) + height;
+        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + 0.5 + Math.Max(situation.radarAltitude, 0);
+        double altitude = (water ? 0 : terrain) + height;
 
         return (body.GetWorldSurfacePosition(situation.latitude, situation.longitude, altitude), rotation);
     }
@@ -524,7 +531,7 @@ public static class Spawner
     private static void CreateLogEntry(ProtoCrewMember crewMember, SpawnSituation situation)
     {
         CelestialBody body = situation.body;
-        FlightLog.EntryType entryType = situation.landed ? FlightLog.EntryType.Land : Placement.OrbitSituation(situation.orbit) switch
+        FlightLog.EntryType entryType = situation.Airborne ? FlightLog.EntryType.Flight : situation.landed ? FlightLog.EntryType.Land : Placement.OrbitSituation(situation.orbit) switch
         {
             Vessel.Situations.ESCAPING => FlightLog.EntryType.Escape,
             Vessel.Situations.SUB_ORBITAL when body.atmosphere && situation.orbit.ApA < body.atmosphereDepth => FlightLog.EntryType.Flight,

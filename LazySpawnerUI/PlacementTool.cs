@@ -18,7 +18,8 @@ namespace LazySpawner;
 // - Flight view, the sky: the ghost follows the mouse around the active vessel, unless that's near the ground.
 // - Map view, a planet or moon: a marker follows the mouse over it.
 // - Map view, space: a circular orbit through the mouse.
-// Click to spawn. The editor's rotation keys turn the vessel, ctrl-click keeps placing, right-click or escape stops.
+// Click to spawn. The editor's rotation keys turn the vessel, alt-scroll lifts it off the ground, ctrl-click keeps placing,
+// right-click or escape stops.
 public class PlacementTool : MonoBehaviour
 {
     public Controller gui;
@@ -48,6 +49,7 @@ public class PlacementTool : MonoBehaviour
     private bool placeValid;
     private string placeInfo;
     private float placeHeading = 90;
+    private float placeAltitude;
     private Quaternion spaceTurn = Quaternion.identity;
     private bool reverseOrbit;
     private Vector3 rightClickStart;
@@ -129,7 +131,8 @@ public class PlacementTool : MonoBehaviour
     private List<SpawnSituation> UpdatePlacing(VesselTemplate template, bool map)
     {
         // Turn with the editor's keys, the same way: 90° a press, or 5° with its fine tweak key.
-        float step = GameSettings.Editor_fineTweak.GetKey(true) ? 5 : 90;
+        bool fine = GameSettings.Editor_fineTweak.GetKey(true);
+        float step = fine ? 5 : 90;
         bool Pressed(KeyBinding key) => key.GetKeyDown(true);
         float roll = Pressed(GameSettings.Editor_rollLeft) ? step : Pressed(GameSettings.Editor_rollRight) ? -step : 0;
 
@@ -150,13 +153,19 @@ public class PlacementTool : MonoBehaviour
                 spaceTurn = Quaternion.identity;
         }
 
-        // Ctrl and the scroll wheel for more or fewer, without the camera zooming meanwhile.
+        // Ctrl and the scroll wheel for more or fewer, Alt for higher or lower, without the camera zooming meanwhile.
         bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-        ControlTypes locked = ctrl ? locks | ControlTypes.CAMERACONTROLS : locks;
+        bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.AltGr);
+        ControlTypes locked = ctrl || alt ? locks | ControlTypes.CAMERACONTROLS : locks;
         if (InputLockManager.GetControlLock(lockID) != locked)
             InputLockManager.SetControlLock(locked, lockID);
-        if (ctrl && GameSettings.AXIS_MOUSEWHEEL.GetAxis() != 0)
-            Controller.count.Text = Mathf.Clamp(Number + Math.Sign(GameSettings.AXIS_MOUSEWHEEL.GetAxis()), 1, 1000).ToString();
+
+        int scroll = Math.Sign(GameSettings.AXIS_MOUSEWHEEL.GetAxis());
+        if (ctrl && scroll != 0)
+            Controller.count.Text = Mathf.Clamp(Number + scroll, 1, 1000).ToString();
+        // As many notches for each tenfold: 5 m at a time up to 100 m, then 50 m at a time up to 1 km, and so on. An eighth of that with fine tweak.
+        else if (alt && scroll != 0 && kind == Kind.Landed)
+            placeAltitude = Mathf.Max(0, placeAltitude + scroll * Mathf.Pow(10, Mathf.Max(1, Mathf.Floor(Mathf.Log10(Mathf.Max(placeAltitude + scroll * 0.5f, 1))))) / (fine ? 16 : 2));
 
         // Stop on escape, or on a right click that wasn't a camera drag.
         if (Input.GetMouseButtonDown(1))
@@ -217,16 +226,16 @@ public class PlacementTool : MonoBehaviour
 
         body.GetLatLonAlt(collider ? hit.point : (Vector3d)ray.origin + (Vector3d)ray.direction * distance, out double latitude, out double longitude, out _);
 
-        List<SpawnSituation> placed = Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation);
+        List<SpawnSituation> placed = Row(template, body, latitude, longitude);
 
         // Steep ground tips things over, and overlapping vessels explode. Only nearby ground says how steep it is.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
-        float slope = collider ? Vector3.Angle(hit.normal, up) : 0;
+        float slope = collider && placeAltitude == 0 ? Vector3.Angle(hit.normal, up) : 0;
         float gap = Clearance(template, placed, out Vessel nearest);
         bool clear = gap >= 0.5f;
 
         placeValid = slope < 30 && clear;
-        placeInfo = $"{Named(template)} · {HeadingText}" +
+        placeInfo = $"{Named(template)} · {HeadingText}{InTheAir}" +
             (nearest != null && clear ? " · " + Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : "") +
             (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
             (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
@@ -303,8 +312,9 @@ public class PlacementTool : MonoBehaviour
         double terrain = hitBody.TerrainAltitude(latitude, longitude, true);
         string water = hitBody.ocean && terrain < 0 && (biome ?? "").IndexOf("water", StringComparison.OrdinalIgnoreCase) < 0 ? " · " + Loc("Placing_OnWater") : "";
         placeInfo = $"{Named(template)} · {name}{(string.IsNullOrEmpty(biome) ? "" : ", " + biome)}{water}\n" +
-            $"{latitude:F3}°, {longitude:F3}° · {HeadingText}";
-        return Formations.LandedRow(template, hitBody, latitude, longitude, placeHeading, Number, Controller.randomRotation);
+            $"{latitude:F3}°, {longitude:F3}° · {HeadingText}{InTheAir}";
+
+        return Row(template, hitBody, latitude, longitude);
     }
 
     // A circular orbit through the point under the mouse, in the plane facing the camera.
@@ -453,6 +463,13 @@ public class PlacementTool : MonoBehaviour
 
     private static int Number => Controller.count.Valid ? Controller.count.value : 1;
 
+    private static float Airspeed => Controller.airspeed.Valid ? Controller.airspeed.value : 0;
+
+    private string InTheAir => placeAltitude > 0 ? " · " + Loc("Placing_InTheAir", Distance(placeAltitude), Airspeed.ToString("F0")) : "";
+
+    private List<SpawnSituation> Row(VesselTemplate template, CelestialBody body, double latitude, double longitude) =>
+        Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, Airspeed);
+
     // What's being placed, and how many.
     private static string Named(VesselTemplate template) => Number > 1 ? Loc("Placing_Several", template.DisplayName, Number) : template.DisplayName;
 
@@ -482,8 +499,9 @@ public class PlacementTool : MonoBehaviour
                 if (used >= maxGhosts)
                     break;
 
-                (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation);
-                if (((Vector3)position - camera).magnitude > ghostRange)
+                (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation, out double height);
+                float distance = ((Vector3)position - camera).magnitude;
+                if (distance > ghostRange)
                     continue;
 
                 if (used >= ghosts.Count)
@@ -491,7 +509,18 @@ public class PlacementTool : MonoBehaviour
 
                 Ghost ghost = ghosts[used++];
                 ghost.gameObject.transform.SetPositionAndRotation(position, rotation);
-                ghost.ShowLaunchClamps(situation.landed);
+                ghost.ShowLaunchClamps(situation.landed && !situation.Airborne);
+
+                // Under the middle of the vessel, not its root part.
+                if (situation.Airborne)
+                {
+                    Vector3 up = situation.body.GetSurfaceNVector(situation.latitude, situation.longitude);
+                    Vector3 middle = rotation * template.SpaceBounds.center;
+                    Vector3 ground = (Vector3)position + middle - up * (float)(height + Vector3.Dot(middle, up));
+                    ghost.ShowDrop(true, ground, up, situation.radarAltitude + 0.5f, Mathf.Max(0.05f, distance * 0.002f));
+                }
+                else
+                    ghost.ShowDrop(false);
                 ghost.SetColor(placeValid ? Ghost.validColor : Ghost.invalidColor);
                 ghost.gameObject.SetActive(true);
             }
@@ -654,7 +683,7 @@ public class PlacementTool : MonoBehaviour
             : Loc("Placing_Turn", roll, fine);
         // What the mouse does, then the keys that adjust it.
         string controls = string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
-            string.Join(" · ", new[] { turning, Loc("Placing_Count") }.Where(s => s != null));
+            string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height", fine) : null, Loc("Placing_Count") }.Where(s => s != null));
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);

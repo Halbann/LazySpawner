@@ -36,6 +36,9 @@ public class Controller : MonoBehaviour
     public static readonly Setting<bool> randomRotation = false;
     public static readonly TextField<CelestialBody> body = new TextField<CelestialBody>("Body", "", parser: FindBody);
 
+    // Place.
+    public static readonly TextField<float> airspeed = new TextField<float>("Airspeed", "100", s => s >= 0);
+
     // Nearby.
     public static readonly TextField<float> range = new TextField<float>("Range", "100", r => r >= 0);
 

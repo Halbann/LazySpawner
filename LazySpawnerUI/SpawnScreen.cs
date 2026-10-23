@@ -247,6 +247,7 @@ public class SpawnScreen : MonoBehaviour
         DebugUI.Spacer(content, 2);
 
         Transform place = Panel(content, () => Controller.situationMode == Controller.SituationMode.Place);
+        Field(place, Controller.airspeed);
         Toggle(place, Loc("RandomRotation"), Controller.randomRotation, Loc("RandomRotation_Place_Tooltip"));
 
         Transform nearby = Panel(content, () => Controller.situationMode == Controller.SituationMode.Nearby);

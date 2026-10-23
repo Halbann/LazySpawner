@@ -9,7 +9,7 @@ namespace LazySpawner;
 internal static class Formations
 {
     // A row, side by side, centred on the coordinates. Spaced for any heading if they'll be turned at random later.
-    public static List<SpawnSituation> LandedRow(VesselTemplate template, CelestialBody body, double latitude, double longitude, float heading, int number, bool anyHeading)
+    public static List<SpawnSituation> LandedRow(VesselTemplate template, CelestialBody body, double latitude, double longitude, float heading, int number, bool anyHeading, float radarAltitude = 0, float airspeed = 0)
     {
         List<SpawnSituation> situations = new List<SpawnSituation>();
         Vector3d centre = body.GetWorldSurfacePosition(latitude, longitude, 0);
@@ -28,7 +28,7 @@ internal static class Formations
             if (number > 1)
                 body.GetLatLonAlt(centre + (Vector3d)side * ((i - (number - 1) * 0.5f) * spacing), out lat, out lon, out _);
 
-            situations.Add(SpawnSituation.Landed(body, lat, lon, heading));
+            situations.Add(SpawnSituation.Landed(body, lat, lon, heading, radarAltitude, airspeed));
         }
 
         return situations;

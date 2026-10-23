@@ -11,8 +11,14 @@ public class Ghost
     public readonly GameObject gameObject;
     private readonly List<Material> materials;
     private readonly List<GameObject> launchClamps = new List<GameObject>();
+    private Color color;
+
+    // In the air: a line up to it from the ground.
+    private readonly LineRenderer drop;
+    private float dropHeight;
 
     private static Shader shader;
+    private static Material lineMaterial;
 
     public static readonly Color validColor = new Color(0.45f, 0.85f, 1f, 0.4f);
     public static readonly Color invalidColor = new Color(1f, 0.35f, 0.25f, 0.4f);
@@ -64,13 +70,44 @@ public class Ghost
         }
 
         materials = ghostly.Values.ToList();
+
+        GameObject line = new GameObject("Drop");
+        line.transform.SetParent(gameObject.transform, false);
+        drop = line.AddComponent<LineRenderer>();
+        drop.useWorldSpace = false;
+        drop.sharedMaterial = lineMaterial ??= new Material(Shader.Find("Sprites/Default"));
+        drop.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        drop.receiveShadows = false;
+        drop.positionCount = 2;
+        line.SetActive(false);
+
         SetColor(validColor);
     }
 
     public void SetColor(Color color)
     {
+        if (color == this.color)
+            return;
+
+        this.color = color;
         foreach (Material material in materials)
             material.color = color;
+
+        drop.startColor = drop.endColor = new Color(color.r, color.g, color.b, 0.4f);
+    }
+
+    // Under the middle of the vessel, as tall as the gap beneath it, and as wide as it needs to be seen from the camera.
+    public void ShowDrop(bool show, Vector3 ground = default, Vector3 up = default, float height = 0, float width = 0)
+    {
+        if (drop.gameObject.activeSelf != show)
+            drop.gameObject.SetActive(show);
+        if (!show)
+            return;
+
+        drop.transform.SetPositionAndRotation(ground, Quaternion.FromToRotation(Vector3.up, up));
+        drop.widthMultiplier = width;
+        if (height != dropHeight)
+            drop.SetPosition(1, Vector3.up * (dropHeight = height));
     }
 
     // Launch clamps are only spawned on the ground.
