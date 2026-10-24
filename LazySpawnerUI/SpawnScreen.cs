@@ -189,10 +189,19 @@ public class SpawnScreen : MonoBehaviour
     private Button[] Tabs<T>(Transform parent, Setting<T> setting, params string[] names) where T : Enum
     {
         Button[] tabs = DebugUI.Tabs(parent, names, i => setting.Value = (T)Enum.ToObject(typeof(T), i));
+        // Only when it changes: comparing enums as numbers boxes them, every frame.
+        T shown = default;
+        bool first = true;
         refresh.Add(() =>
         {
+            if (!first && EqualityComparer<T>.Default.Equals(setting.Value, shown))
+                return;
+
+            first = false;
+            shown = setting.Value;
+            int selected = Convert.ToInt32(shown);
             for (int i = 0; i < tabs.Length; i++)
-                DebugUI.Select(tabs[i], Convert.ToInt32(setting.Value) == i);
+                DebugUI.Select(tabs[i], selected == i);
         });
         return tabs;
     }
