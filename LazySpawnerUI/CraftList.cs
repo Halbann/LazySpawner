@@ -78,7 +78,7 @@ internal class Craft
                 string file = CraftList.ThumbnailPath(this);
                 if (File.Exists(file))
                 {
-                    thumbnail = new Texture2D(2, 2);
+                    thumbnail = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: false);
                     thumbnail.LoadImage(File.ReadAllBytes(file), markNonReadable: true);
                 }
             }
@@ -87,11 +87,13 @@ internal class Craft
         }
     }
 
-    // The file changed, so this is out of date.
+    // The file changed, or the thumbnail isn't being shown. It loads again if it's wanted.
     public void Forget()
     {
         if (thumbnail != null)
             UnityEngine.Object.Destroy(thumbnail);
+        thumbnail = null;
+        thumbnailLoaded = false;
     }
 }
 
@@ -173,6 +175,14 @@ internal static class CraftList
     }
 
     private static (string path, Craft craft, float until) lastGet;
+
+    // Thumbnails load as the list scrolls past them. Once it's closed, only the selected craft's is shown.
+    public static void ForgetThumbnails(Craft keep)
+    {
+        foreach (Craft craft in known.Values)
+            if (craft != keep)
+                craft.Forget();
+    }
 
     // Where a craft is: the game's Ships/VAB/..., an expansion's GameData/SquadExpansion/<expansion>/Ships/VAB/...,
     // a save's saves/<save>/Ships/VAB/..., or anywhere else.

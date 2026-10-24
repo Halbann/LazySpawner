@@ -549,6 +549,9 @@ public class SpawnScreen : MonoBehaviour
 
     private void ShowPicker(bool show)
     {
+        if (!show && picker.gameObject.activeSelf)
+            CraftList.ForgetThumbnails(Controller.SelectedCraft);
+
         main.gameObject.SetActive(!show);
         picker.gameObject.SetActive(show);
 
