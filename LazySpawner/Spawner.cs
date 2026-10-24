@@ -430,7 +430,11 @@ public static class Spawner
 
         vessel.groundCollisionHit = vessel.heightFromTerrainHit;
         Vector3 up = FlightGlobals.getUpAxis(vessel.mainBody, vessel.transform.position);
+        // Infinite when it found no collider to measure, as stock checks too.
         float lowest = Mathf.Abs(vessel.getLowestPoint()) * Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
+        if (float.IsInfinity(lowest) || float.IsNaN(lowest))
+            return;
+
         float lift = lowest + groundGap - vessel.heightFromTerrain;
         vessel.Translate(up * lift);
         Logger.Log($"Settled {vessel.GetDisplayName()} on the ground, {(lift < 0 ? "down" : "up")} {Math.Abs(lift):F2} m.");
