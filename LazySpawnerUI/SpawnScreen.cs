@@ -352,7 +352,11 @@ public class SpawnScreen : MonoBehaviour
 
     private void BodyPicker(Transform parent)
     {
-        Transform picker = Stepper(parent, Controller.body.Title, () => Controller.body.Valid ? Controller.body.value.displayName.LocalizeRemoveGender() : Controller.body.Text, step =>
+        // Localised again only when the body changes.
+        (CelestialBody body, string name) shown = default;
+        Transform picker = Stepper(parent, Controller.body.Title, () => !Controller.body.Valid ? Controller.body.Text
+            : shown.body == Controller.body.value ? shown.name
+            : (shown = (Controller.body.value, Controller.body.value.displayName.LocalizeRemoveGender())).name, step =>
         {
             List<CelestialBody> bodies = FlightGlobals.Bodies;
             int index = Controller.body.Valid ? bodies.IndexOf(Controller.body.value) : 0;
