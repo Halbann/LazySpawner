@@ -57,6 +57,8 @@ public class PlacementTool : MonoBehaviour
     private Vector3 rightClickStart;
     private float rightClickTime;
     private GUIStyle hintStyle;
+    private (int, bool, bool, bool, bool, bool, bool, float, float) hintKey;
+    private string hintControls;
 
     #region Lifecycle
 
@@ -689,23 +691,29 @@ public class PlacementTool : MonoBehaviour
             _ => key.name,
         };
 
-        string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
-        string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
-        bool turns = kind != Kind.Orbit && !Controller.randomRotation;
-        string turning = kind == Kind.Orbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
-            : !turns ? null
-            : kind == Kind.Space ? Loc("Placing_Rotate", all, Key(GameSettings.Editor_resetRotation))
-            : Loc("Placing_Turn", roll);
+        // Made afresh only when something it shows changes, rather than every frame.
+        var key = ((int)kind, Ctrl, Alt, Fine, Speed, Controller.randomRotation.Value, placeAltitude > 0, Step(placeAltitude, 1), Step(placeAirspeed, 1));
+        if (!key.Equals(hintKey) || hintControls == null)
+        {
+            hintKey = key;
+            string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
+            string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
+            bool turns = kind != Kind.Orbit && !Controller.randomRotation;
+            string turning = kind == Kind.Orbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
+                : !turns ? null
+                : kind == Kind.Space ? Loc("Placing_Rotate", all, Key(GameSettings.Editor_resetRotation))
+                : Loc("Placing_Turn", roll);
 
-        // Only what the modifiers held do, or with none, what the mouse does, then the keys that adjust it.
-        string controls = Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
-            : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", Step(placeAltitude, 1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
-            : Speed ? Fine ? Loc("Placing_AirspeedStep", Step(placeAirspeed, 1).ToString("0.##")) : Loc("Placing_SpeedScroll", Key(GameSettings.Editor_fineTweak))
-            : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
-            : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
-                string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
+            // Only what the modifiers held do, or with none, what the mouse does, then the keys that adjust it.
+            hintControls = Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
+                : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", Step(placeAltitude, 1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
+                : Speed ? Fine ? Loc("Placing_AirspeedStep", Step(placeAirspeed, 1).ToString("0.##")) : Loc("Placing_SpeedScroll", Key(GameSettings.Editor_fineTweak))
+                : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
+                : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
+                    string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
+        }
 
-        GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
+        GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + hintControls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);
         Vector2 mouse = Event.current.mousePosition;
         Rect rect = new Rect(mouse.x + 20, mouse.y + 20, size.x, size.y);
