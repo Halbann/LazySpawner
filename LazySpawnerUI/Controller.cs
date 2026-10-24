@@ -372,7 +372,7 @@ public class Controller : MonoBehaviour
 
     // Previews can't be random, or they'd jump about every frame.
     // Nothing for Place, which is where the placement tool says.
-    private List<SpawnSituation> CreateSituations(VesselTemplate template, int number, bool preview)
+    private static List<SpawnSituation> CreateSituations(VesselTemplate template, int number, bool preview)
     {
         switch (situationMode.Value)
         {
@@ -417,7 +417,7 @@ public class Controller : MonoBehaviour
     {
         name = name.Trim();
         return name == "" ? FlightGlobals.GetHomeBody() : FlightGlobals.Bodies.Find(b => b.bodyName.Equals(name, StringComparison.OrdinalIgnoreCase)
-            || b.displayName.LocalizeRemoveGender().Equals(name, StringComparison.OrdinalIgnoreCase));
+            || b.Name().Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion
@@ -440,7 +440,7 @@ public class Controller : MonoBehaviour
         Vessel original = CloneSource();
         Craft craft = SelectedCraft;
         string key = InEditor ? $"editor {editorChanges} {EditorLogic.fetch.ship.parts.Count} {EditorLogic.fetch.ship.shipName}"
-            : source == Source.Clone ? $"clone {original?.id} {(original == null ? 0 : original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}"
+            : source == Source.Clone ? $"clone {original?.id} {original?.PartCount()}"
             : $"craft {craft?.path} {(craft == null ? 0 : File.GetLastWriteTimeUtc(craft.path).Ticks)}";
 
         cached.until = Time.unscaledTime + 0.25f;
@@ -462,26 +462,19 @@ public class Controller : MonoBehaviour
     }
 
     // The map draws them every frame. Their orbits carry on from when they were made, so making them a few times a second is plenty.
-    internal List<SpawnSituation> PreviewSituations(VesselTemplate template)
-    {
-        if (template == preview.template && (int)situationMode.Value == preview.mode && Time.unscaledTime < preview.until)
-            return preview.situations;
+    internal List<SpawnSituation> PreviewSituations(VesselTemplate template) => previews.Get((template, situationMode.Value));
 
-        List<SpawnSituation> situations = null;
+    private static readonly Kept<(VesselTemplate, SituationMode), List<SpawnSituation>> previews = new Kept<(VesselTemplate, SituationMode), List<SpawnSituation>>(key =>
+    {
         try
         {
-            if (count.Valid)
-                situations = CreateSituations(template, count, true);
+            return count.Valid ? CreateSituations(key.Item1, count, true) : null;
         }
         catch
         {
+            return null;
         }
-
-        preview = (template, (int)situationMode.Value, situations, Time.unscaledTime + 0.25f);
-        return situations;
-    }
-
-    private (VesselTemplate template, int mode, List<SpawnSituation> situations, float until) preview;
+    }, 0.25f);
 
     // Describe an orbit in the advanced orbit fields.
     internal static void SetOrbit(Orbit orbit)

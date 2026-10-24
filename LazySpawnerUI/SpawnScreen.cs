@@ -147,14 +147,9 @@ internal class SpawnScreen : ConsoleScreen
         aboutLayout.flexibleWidth = 1;
         aboutLayout.minWidth = DebugUI.ControlWidth;
         // At once for a different craft, and otherwise twice a second, for its age and part count.
-        (object craft, string text, float until) description = default;
-        Text(DebugUI.Paragraph(about), () =>
-        {
-            object craft = Controller.InEditor ? EditorLogic.fetch.ship : Controller.source == Controller.Source.Clone ? Controller.CloneSource() : Controller.SelectedCraft;
-            if (craft != description.craft || Time.unscaledTime > description.until)
-                description = (craft, CraftDescription(), Time.unscaledTime + 0.5f);
-            return description.text;
-        });
+        Kept<object, string> description = new Kept<object, string>(_ => CraftDescription(), 0.5f);
+        Text(DebugUI.Paragraph(about), () => description.Get(Controller.InEditor ? EditorLogic.fetch.ship
+            : Controller.source == Controller.Source.Clone ? Controller.CloneSource() : Controller.SelectedCraft));
         Transform craftButtons = Show(DebugUI.Row(about), () => !Controller.InEditor);
         DebugUI.Button(craftButtons, Loc("Craft_Change"), () => ShowPicker(true), half);
         DebugUI.Tooltip(Show(DebugUI.Button(craftButtons, Loc("Craft_Edit"), () => Controller.OpenInEditor(Controller.SelectedCraft), half),
@@ -209,25 +204,17 @@ internal class SpawnScreen : ConsoleScreen
 
         // What happens, and the buttons that make it happen. It makes several lists and strings, so a few times a
         // second rather than every frame.
-        bool ready = false;
-        List<string> summary = new List<string>();
-        string summaryText = "";
-        float nextSummary = 0;
-        Bind(() =>
+        Kept<int, (List<string> lines, bool ready, string text)> summary = new Kept<int, (List<string>, bool, string)>(_ =>
         {
-            if (Time.unscaledTime < nextSummary)
-                return;
-
-            nextSummary = Time.unscaledTime + 0.2f;
-            summary = Summary(out ready);
-            summaryText = Bullets(summary);
-        });
-        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Count > 0)), () => summaryText).paragraphSpacing = 12;
+            List<string> lines = Summary(out bool ready);
+            return (lines, ready, Bullets(lines));
+        }, 0.2f);
+        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Get().lines.Count > 0)), () => summary.Get().text).paragraphSpacing = 12;
 
         DebugUI.Spacer(content, 8);
         Transform buttons = DebugUI.Row(content, alignment: TextAnchor.MiddleCenter);
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
-        Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => ready && C.spawnRoutine == null);
+        Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => summary.Get().ready && C.spawnRoutine == null);
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
         // Where to click, or that the editor stays open.
         KSP.UI.TooltipTypes.TooltipController_Text spawnTooltip = DebugUI.Tooltip(spawn, "").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
@@ -268,11 +255,8 @@ internal class SpawnScreen : ConsoleScreen
 
     private void BodyPicker(Transform parent)
     {
-        // Localised again only when the body changes.
-        (CelestialBody body, string name) shown = default;
-        Transform picker = Stepper(parent, Controller.body.Title, () => !Controller.body.Valid ? Controller.body.Text
-            : shown.body == Controller.body.value ? shown.name
-            : (shown = (Controller.body.value, Controller.body.value.displayName.LocalizeRemoveGender())).name, step =>
+        Kept<CelestialBody, string> name = new Kept<CelestialBody, string>(body => body.Name());
+        Transform picker = Stepper(parent, Controller.body.Title, () => Controller.body.Valid ? name.Get(Controller.body.value) : Controller.body.Text, step =>
         {
             List<CelestialBody> bodies = FlightGlobals.Bodies;
             int index = Controller.body.Valid ? bodies.IndexOf(Controller.body.value) : 0;
@@ -316,7 +300,7 @@ internal class SpawnScreen : ConsoleScreen
             Vessel original = Controller.CloneSource();
             return original == null
                 ? orange + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel")
-                : $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_CloneActive" : "Craft_CloneSelected", original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count);
+                : $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_CloneActive" : "Craft_CloneSelected", original.PartCount());
         }
 
         Craft craft = Controller.SelectedCraft;
@@ -380,7 +364,7 @@ internal class SpawnScreen : ConsoleScreen
     private string Where(VesselTemplate template, List<string> problems, List<string> warnings)
     {
         CelestialBody body = Controller.body.value;
-        string bodyName = body?.displayName.LocalizeRemoveGender();
+        string bodyName = body?.Name();
 
         switch (Controller.situationMode.Value)
         {

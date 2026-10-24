@@ -19,16 +19,10 @@ internal static class LaunchSites
 
     public static List<Site> All => all ??= Load();
 
-    // The site with this name, or the first one.
-    public static Site Named(string name)
-    {
-        // The screen asks every frame.
-        if (name != lastNamed.name || lastNamed.site == null)
-            lastNamed = (name, All.FirstOrDefault(s => s.name == name) ?? All.FirstOrDefault());
-        return lastNamed.site;
-    }
+    // The site with this name, or the first one. The screen asks every frame.
+    public static Site Named(string name) => named.Get(name);
 
-    private static (string name, Site site) lastNamed;
+    private static readonly Kept<string, Site> named = new Kept<string, Site>(name => All.FirstOrDefault(s => s.name == name) ?? All.FirstOrDefault());
 
     private static List<Site> Load()
     {

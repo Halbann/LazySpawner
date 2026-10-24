@@ -219,7 +219,7 @@ internal struct Box
 
     private static Bounds Measure(Vessel vessel)
     {
-        int partCount = vessel.loaded ? vessel.parts.Count : vessel.protoVessel.protoPartSnapshots.Count;
+        int partCount = vessel.PartCount();
 
         if (measured.TryGetValue(vessel.persistentId, out var entry) && entry.partCount == partCount && Time.time - entry.time < 5f)
             return entry.bounds;

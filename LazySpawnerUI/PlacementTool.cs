@@ -307,7 +307,7 @@ public class PlacementTool : MonoBehaviour
         double latitude = hitBody.GetLatitude(surface);
         double longitude = hitBody.GetLongitude(surface);
 
-        string name = hitBody.displayName.LocalizeRemoveGender();
+        string name = hitBody.Name();
 
         if (hitBody.pqsController == null)
         {
@@ -342,7 +342,7 @@ public class PlacementTool : MonoBehaviour
         Vector3d radial = ((Vector3d)(ray.GetPoint(enter) - centre)) * ScaledSpace.ScaleFactor;
         double radius = radial.magnitude;
         double altitude = radius - body.Radius;
-        string name = body.displayName.LocalizeRemoveGender();
+        string name = body.Name();
 
         placeInfo = radius <= body.Radius ? Loc("Placing_FurtherOut", name) : radius >= body.sphereOfInfluence ? Loc("Placing_OutsideSOI", name) : null;
         if (placeInfo != null)
@@ -692,36 +692,13 @@ public class PlacementTool : MonoBehaviour
             padding = new RectOffset(8, 8, 6, 6),
         };
 
-        // Modifiers by the names on the keys: Shift, not LeftShift.
-        string Key(KeyBinding key) => key.primary.code switch
-        {
-            KeyCode.LeftShift or KeyCode.RightShift => "Shift",
-            KeyCode.LeftControl or KeyCode.RightControl => "Ctrl",
-            KeyCode.LeftAlt or KeyCode.RightAlt => "Alt",
-            _ => key.name,
-        };
-
         // Made afresh only when something it shows changes, rather than every frame.
         var key = ((int)kind, Ctrl, Alt, Fine, Speed, Controller.randomRotation.Value, placeAltitude > 0, Step(placeAltitude, 1), Step(placeAirspeed, 1));
         bool controlsChanged = !key.Equals(hintKey) || hintControls == null;
         if (controlsChanged)
         {
             hintKey = key;
-            string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
-            string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
-            bool turns = kind != Kind.Orbit && !Controller.randomRotation;
-            string turning = kind == Kind.Orbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
-                : !turns ? null
-                : kind == Kind.Space ? Loc("Placing_Rotate", all, Key(GameSettings.Editor_resetRotation))
-                : Loc("Placing_Turn", roll);
-
-            // Only what the modifiers held do, or with none, what the mouse does, then the keys that adjust it.
-            hintControls = Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
-                : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", Step(placeAltitude, 1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
-                : Speed ? Fine ? Loc("Placing_AirspeedStep", Step(placeAirspeed, 1).ToString("0.##")) : Loc("Placing_SpeedScroll", Key(GameSettings.Editor_fineTweak))
-                : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
-                : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
-                    string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
+            hintControls = Controls();
         }
 
         // Measuring rich text isn't cheap, and it's usually what it was last frame.
@@ -741,6 +718,34 @@ public class PlacementTool : MonoBehaviour
         if (rect.yMax > Screen.height) rect.y = mouse.y - 20 - size.y;
 
         GUI.Box(rect, content, hintStyle);
+    }
+
+    // Modifiers by the names on the keys: Shift, not LeftShift.
+    private static string Key(KeyBinding key) => key.primary.code switch
+    {
+        KeyCode.LeftShift or KeyCode.RightShift => "Shift",
+        KeyCode.LeftControl or KeyCode.RightControl => "Ctrl",
+        KeyCode.LeftAlt or KeyCode.RightAlt => "Alt",
+        _ => key.name,
+    };
+
+    // Only what the modifiers held do, or with none, what the mouse does, then the keys that adjust it.
+    private string Controls()
+    {
+        string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
+        string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
+        bool turns = kind != Kind.Orbit && !Controller.randomRotation;
+        string turning = kind == Kind.Orbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
+            : !turns ? null
+            : kind == Kind.Space ? Loc("Placing_Rotate", all, Key(GameSettings.Editor_resetRotation))
+            : Loc("Placing_Turn", roll);
+
+        return Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
+            : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", Step(placeAltitude, 1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
+            : Speed ? Fine ? Loc("Placing_AirspeedStep", Step(placeAirspeed, 1).ToString("0.##")) : Loc("Placing_SpeedScroll", Key(GameSettings.Editor_fineTweak))
+            : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
+            : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
+                string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
     }
 
     // A ring with a dot in the middle, 32 pixels across.

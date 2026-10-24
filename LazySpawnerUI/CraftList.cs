@@ -161,20 +161,15 @@ internal static class CraftList
 
     // A craft file from anywhere, if it's still there. Asked for every frame, so once it's known it isn't read
     // again. Refreshing the list does that.
-    public static Craft Get(string path)
+    // The screen asks for the selected craft several times a frame. The disk only needs asking now and then.
+    public static Craft Get(string path) => lookups.Get(path);
+
+    private static readonly Kept<string, Craft> lookups = new Kept<string, Craft>(path =>
     {
-        // The screen asks for the selected craft several times a frame. The disk only needs asking now and then.
-        if (path == lastGet.path && Time.unscaledTime < lastGet.until)
-            return lastGet.craft;
-
         string full = string.IsNullOrEmpty(path) ? null : Path.GetFullPath(path);
-        Craft craft = full == null || !File.Exists(full) ? null
+        return full == null || !File.Exists(full) ? null
             : known.TryGetValue(full, out Craft found) ? found : known[full] = Create(full, File.GetLastWriteTime(full));
-        lastGet = (path, craft, Time.unscaledTime + 0.5f);
-        return craft;
-    }
-
-    private static (string path, Craft craft, float until) lastGet;
+    }, 0.5f);
 
     // Thumbnails load as the list scrolls past them. Once it's closed, only the selected craft's is shown.
     public static void ForgetThumbnails(Craft keep)
