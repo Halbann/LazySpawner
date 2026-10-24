@@ -18,8 +18,8 @@ namespace LazySpawner;
 // - Flight view, the sky: the ghost follows the mouse around the active vessel, unless that's near the ground.
 // - Map view, a planet or moon: a marker follows the mouse over it.
 // - Map view, space: a circular orbit through the mouse.
-// Click to spawn. The editor's rotation keys turn the vessel, alt-scroll lifts it off the ground, ctrl-click keeps placing,
-// right-click or escape stops.
+// Click to spawn. The editor's rotation keys turn the vessel, alt-scroll lifts it off the ground, s-scroll sets how fast it flies,
+// ctrl-click keeps placing, right-click or escape stops.
 public class PlacementTool : MonoBehaviour
 {
     public Controller gui;
@@ -50,6 +50,8 @@ public class PlacementTool : MonoBehaviour
     private string placeInfo;
     private float placeHeading = 90;
     private float placeAltitude;
+    // The airspeed setting, capped for the height.
+    private float placeAirspeed;
     private Quaternion spaceTurn = Quaternion.identity;
     private bool reverseOrbit;
     private Vector3 rightClickStart;
@@ -152,8 +154,8 @@ public class PlacementTool : MonoBehaviour
                 spaceTurn = Quaternion.identity;
         }
 
-        // Ctrl and the scroll wheel for more or fewer, Alt for higher or lower, without the camera zooming meanwhile.
-        ControlTypes locked = Ctrl || Alt ? locks | ControlTypes.CAMERACONTROLS : locks;
+        // Ctrl and the scroll wheel for more or fewer, Alt for higher or lower, S for faster or slower in the air, without the camera zooming meanwhile.
+        ControlTypes locked = Ctrl || Alt || Speed ? locks | ControlTypes.CAMERACONTROLS : locks;
         if (InputLockManager.GetControlLock(lockID) != locked)
             InputLockManager.SetControlLock(locked, lockID);
 
@@ -161,7 +163,9 @@ public class PlacementTool : MonoBehaviour
         if (Ctrl && scroll != 0)
             Controller.count.Text = Mathf.Clamp(Number + scroll, 1, 1000).ToString();
         else if (Alt && scroll != 0 && kind == Kind.Landed)
-            placeAltitude = Mathf.Max(0, placeAltitude + scroll * HeightStep(scroll));
+            placeAltitude = Mathf.Max(0, placeAltitude + scroll * Step(placeAltitude, scroll));
+        else if (Speed && scroll != 0)
+            Controller.airspeed.Value = Mathf.Max(0, placeAirspeed + scroll * Step(placeAirspeed, scroll));
 
         // Stop on escape, or on a right click that wasn't a camera drag.
         if (Input.GetMouseButtonDown(1))
@@ -458,24 +462,27 @@ public class PlacementTool : MonoBehaviour
 
     private static int Number => Controller.count.Valid ? Controller.count.value : 1;
 
-    private static float Airspeed => Controller.airspeed.Valid ? Controller.airspeed.value : 0;
-
     private static bool Ctrl => Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
     private static bool Alt => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.AltGr);
     private static bool Fine => GameSettings.Editor_fineTweak.GetKey(true);
+    private bool Speed => Input.GetKey(KeyCode.S) && kind == Kind.Landed && placeAltitude > 0;
 
-    // As many notches for each tenfold: 10 m at a time up to 100 m, then 100 m at a time up to 1 km, and so on. An eighth of that with fine tweak.
-    private float HeightStep(int direction) =>
-        Mathf.Pow(10, Mathf.Max(1, Mathf.Floor(Mathf.Log10(Mathf.Max(placeAltitude + direction * 0.5f, 1))))) / (Fine ? 8 : 1);
+    // As many notches for each tenfold: 10 at a time up to 100, then 100 at a time up to 1000, and so on. An eighth of that with fine tweak.
+    private static float Step(float value, int direction) =>
+        Mathf.Pow(10, Mathf.Max(1, Mathf.Floor(Mathf.Log10(Mathf.Max(value + direction * 0.5f, 1))))) / (Fine ? 8 : 1);
 
-    private string InTheAir => placeAltitude > 0 ? " · " + Loc("Placing_InTheAir", Distance(placeAltitude), Airspeed.ToString("F0")) : "";
+    private string InTheAir => placeAltitude > 0 ? " · " + Loc("Placing_InTheAir", Distance(placeAltitude), placeAirspeed.ToString("F0")) : "";
 
     private List<SpawnSituation> Row(VesselTemplate template, CelestialBody body, double latitude, double longitude, double? groundSearchAltitude = null)
     {
+        // No faster over the ground than a circular orbit at that height, flying east along the equator.
+        double radius = body.Radius + placeAltitude;
+        placeAirspeed = placeAltitude > 0 ? Mathf.Min(Controller.airspeed, (float)Math.Max(0, Math.Sqrt(body.gravParameter / radius) - body.angularVelocity.magnitude * radius)) : Controller.airspeed;
+
         SpawnSituation at = SpawnSituation.Landed(body, latitude, longitude, placeHeading, placeAltitude);
         (Vector3d position, Quaternion rotation) = Spawner.Pose(template, at);
         body.GetLatLonAlt(position - (Vector3d)(rotation * template.BoundsFor(!at.Airborne).center), out latitude, out longitude, out _);
-        return Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, Airspeed, groundSearchAltitude);
+        return Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, placeAirspeed, groundSearchAltitude);
     }
 
     // What's being placed, and how many.
@@ -692,10 +699,11 @@ public class PlacementTool : MonoBehaviour
 
         // Only what the modifiers held do, or with none, what the mouse does, then the keys that adjust it.
         string controls = Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
-            : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", HeightStep(1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
+            : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", Step(placeAltitude, 1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
+            : Speed ? Fine ? Loc("Placing_AirspeedStep", Step(placeAirspeed, 1).ToString("0.##")) : Loc("Placing_SpeedScroll", Key(GameSettings.Editor_fineTweak))
             : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
             : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
-                string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, Loc("Placing_Count") }.Where(s => s != null));
+                string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);
