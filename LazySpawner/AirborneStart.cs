@@ -69,17 +69,19 @@ public class AirborneStart : VesselModule
 
         Logger.Log($"{vessel.GetDisplayName()} took off at {airspeed:F0} m/s with {engines.Count(e => e.part.inverseStage == first)} engines.");
         settling = settlingSteps;
+        enabled = true;
     }
+
+    // Every vessel has one, so it only updates while settling. Stock still calls the rest.
+    public override bool ShouldBeActive() => settling > 0;
 
     // Then back to however they unpacked, as stock does it.
     protected void FixedUpdate()
     {
-        if (settling == 0)
-            return;
-
         bool unbreakable = --settling > 0 || CheatOptions.UnbreakableJoints;
         foreach (Part part in vessel.parts)
             if (part.attachJoint != null)
                 part.attachJoint.SetUnbreakable(unbreakable, part.rigidAttachment);
+        enabled = settling > 0;
     }
 }
