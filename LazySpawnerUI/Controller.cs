@@ -426,19 +426,27 @@ public class Controller : MonoBehaviour
 
     // The template for the selected craft or vessel, or null with the reason it can't be spawned.
     // Previews keep it until the craft file or vessel changes. Spawning makes it afresh, so clones are up to date.
-    private (string key, VesselTemplate template, Exception error) cached;
+    private (string key, VesselTemplate template, Exception error, float until) cached;
 
     internal VesselTemplate Template(out Exception error, bool fresh = false)
     {
+        // The screen and the placement tool both ask every frame. Checking for changes a few times a second is plenty.
+        if (!fresh && Time.unscaledTime < cached.until)
+        {
+            error = cached.error;
+            return cached.template;
+        }
+
         Vessel original = CloneSource();
         Craft craft = SelectedCraft;
         string key = InEditor ? $"editor {editorChanges} {EditorLogic.fetch.ship.parts.Count} {EditorLogic.fetch.ship.shipName}"
             : source == Source.Clone ? $"clone {original?.id} {(original == null ? 0 : original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count)}"
             : $"craft {craft?.path} {(craft == null ? 0 : File.GetLastWriteTimeUtc(craft.path).Ticks)}";
 
+        cached.until = Time.unscaledTime + 0.25f;
         if (fresh || cached.key != key)
         {
-            cached = (key, null, null);
+            cached = (key, null, null, cached.until);
             try
             {
                 cached.template = CreateTemplate();

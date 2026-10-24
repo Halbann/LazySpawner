@@ -161,11 +161,18 @@ internal static class CraftList
     // again. Refreshing the list does that.
     public static Craft Get(string path)
     {
-        if (string.IsNullOrEmpty(path) || !File.Exists(path = Path.GetFullPath(path)))
-            return null;
+        // The screen asks for the selected craft several times a frame. The disk only needs asking now and then.
+        if (path == lastGet.path && Time.unscaledTime < lastGet.until)
+            return lastGet.craft;
 
-        return known.TryGetValue(path, out Craft craft) ? craft : known[path] = Create(path, File.GetLastWriteTime(path));
+        string full = string.IsNullOrEmpty(path) ? null : Path.GetFullPath(path);
+        Craft craft = full == null || !File.Exists(full) ? null
+            : known.TryGetValue(full, out Craft found) ? found : known[full] = Create(full, File.GetLastWriteTime(full));
+        lastGet = (path, craft, Time.unscaledTime + 0.5f);
+        return craft;
     }
+
+    private static (string path, Craft craft, float until) lastGet;
 
     // Where a craft is: the game's Ships/VAB/..., an expansion's GameData/SquadExpansion/<expansion>/Ships/VAB/...,
     // a save's saves/<save>/Ships/VAB/..., or anywhere else.
