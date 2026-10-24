@@ -47,6 +47,7 @@ public class Ghost
 
             GameObject copy = Object.Instantiate(model.gameObject, part.transform, false);
             copy.SetActive(true);
+            templatePart.Pose(copy.transform);
 
             // Parts with variants have every variant's meshes in the prefab. Show the selected one's.
             Dictionary<string, bool> variant = VesselBounds.Variant(prefab, templatePart.variant);

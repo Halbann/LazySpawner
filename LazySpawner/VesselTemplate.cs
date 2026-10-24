@@ -137,9 +137,32 @@ public struct TemplatePart
     public string variant;
     public Vector3 position;
     public Quaternion rotation;
+    // Part models come in whatever pose they were made in, maybe with a ramp down or a bay open. The animations as saved:
+    // each clip and how far through it.
+    public (string clip, float time)[] poses;
 
     internal static List<TemplatePart> From(ProtoVessel proto) =>
-        proto.protoPartSnapshots.Select(s => new TemplatePart { info = s.partInfo, variant = s.moduleVariantName, position = s.position, rotation = s.rotation }).ToList();
+        proto.protoPartSnapshots.Select(s => new TemplatePart { info = s.partInfo, variant = s.moduleVariantName, position = s.position, rotation = s.rotation,
+            poses = Poses(s.partInfo?.partPrefab, s.modules.Select(m => m.moduleValues)) }).ToList();
+
+    // As ModuleAnimateGeneric starts: at its saved time, or at the end of a one-shot animation that's been played.
+    internal static (string, float)[] Poses(Part prefab, IEnumerable<ConfigNode> modules)
+    {
+        const string name = nameof(ModuleAnimateGeneric);
+        IEnumerable<PartModule> animators = prefab == null ? Enumerable.Empty<PartModule>() : prefab.Modules.Cast<PartModule>().Where(m => m.moduleName == name);
+        return modules.Where(m => m.GetValue("name") == name).Zip(animators.Cast<ModuleAnimateGeneric>(), (node, module) =>
+            (module.animationName, module.isOneShot && node.GetValue("aniState") == "FIXED" ? 1f
+                : float.TryParse(node.GetValue("animTime"), NumberStyles.Float, CultureInfo.InvariantCulture, out float time) ? time : 0f)).ToArray();
+    }
+
+    // Put a copy of the part's model, anything under the transform, in the saved poses.
+    public void Pose(Transform model)
+    {
+        foreach (Animation animation in poses == null ? new Animation[0] : model.GetComponentsInChildren<Animation>(true))
+            foreach ((string clip, float time) in poses)
+                if (animation[clip]?.clip is AnimationClip animationClip)
+                    animationClip.SampleAnimation(animation.gameObject, time * animationClip.length);
+    }
 }
 
 public class SpawnException : Exception

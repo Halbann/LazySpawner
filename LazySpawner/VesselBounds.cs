@@ -39,23 +39,37 @@ public static class VesselBounds
     private static bool IsLaunchClamp(Part part) =>
         part != null && part.HasModuleImplementing<LaunchClamp>();
 
-    // A part that hasn't been built yet: its prefab's colliders, moved to where the part will be.
-    private static IEnumerable<Vector3> Prefab(TemplatePart part)
+    // A part that hasn't been built yet: its prefab's colliders, moved to where the part will be. A part with animations is measured
+    // in a copy of its model, posed as saved, which an inactive holder in the prefab's place keeps out of the scene.
+    private static List<Vector3> Prefab(TemplatePart part)
     {
-        yield return part.position;
-
+        List<Vector3> points = new List<Vector3> { part.position };
         Part prefab = part.info?.partPrefab;
         if (prefab == null)
-            yield break;
+            return points;
+
+        Transform root = prefab.transform, model = root.Find("model");
+        GameObject holder = null;
+        if (part.poses?.Length > 0 && model != null)
+        {
+            holder = new GameObject("LazySpawner Measure");
+            holder.SetActive(false);
+            holder.transform.SetPositionAndRotation(root.position, root.rotation);
+            root = holder.transform;
+            part.Pose(Object.Instantiate(model.gameObject, root).transform);
+        }
 
         Matrix4x4 partToVessel = Matrix4x4.TRS(part.position, part.rotation, Vector3.one);
         Matrix4x4 worldToPrefab = prefab.transform.worldToLocalMatrix;
         Dictionary<string, bool> variant = Variant(prefab, part.variant);
 
-        foreach (Collider collider in prefab.GetComponentsInChildren<Collider>(true))
-            if (collider.enabled && !collider.isTrigger && Shown(collider.transform, prefab.transform, variant))
-                foreach (Vector3 corner in Corners(collider, partToVessel * worldToPrefab * collider.transform.localToWorldMatrix))
-                    yield return corner;
+        foreach (Collider collider in root.GetComponentsInChildren<Collider>(true))
+            if (collider.enabled && !collider.isTrigger && Shown(collider.transform, root, variant))
+                points.AddRange(Corners(collider, partToVessel * worldToPrefab * collider.transform.localToWorldMatrix));
+
+        if (holder != null)
+            Object.DestroyImmediate(holder);
+        return points;
     }
 
     // Prefabs have every variant's objects. Which of them, by name, the selected variant turns on or off.
