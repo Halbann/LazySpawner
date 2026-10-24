@@ -517,10 +517,12 @@ public class PlacementTool : MonoBehaviour
             }
 
             Vector3 camera = FlightCamera.fetch.mainCamera.transform.position;
-            foreach (SpawnSituation situation in situations.Where(s => !s.landed || s.body == FlightGlobals.currentMainBody))
+            foreach (SpawnSituation situation in situations)
             {
                 if (used >= maxGhosts)
                     break;
+                if (situation.landed && situation.body != FlightGlobals.currentMainBody)
+                    continue;
 
                 (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation, out double height);
                 float distance = ((Vector3)position - camera).magnitude;
