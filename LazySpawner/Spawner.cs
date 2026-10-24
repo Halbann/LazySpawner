@@ -340,7 +340,7 @@ public static class Spawner
 
         // The root part has no rotation relative to itself.
         Quaternion referenceRelative = protoVessel.protoPartSnapshots.Find(s => s.flightID == protoVessel.refTransform)?.rotation ?? Quaternion.identity;
-        (Vector3d position, Quaternion rotation) = GetPose(template, situation, referenceRelative, out double height, out bool splashed);
+        (Vector3d position, Quaternion rotation) = GetPose(template, situation, referenceRelative, out double height, out bool splashed, out bool measured);
         bool landed = situation.landed, airborne = situation.Airborne;
 
         body.GetLatLonAlt(position, out protoVessel.latitude, out protoVessel.longitude, out protoVessel.altitude);
@@ -349,9 +349,11 @@ public static class Spawner
         protoVessel.situation = !landed ? Placement.OrbitSituation(situation.orbit) : splashed ? Vessel.Situations.SPLASHED : Vessel.Situations.LANDED;
         protoVessel.landed = landed && !splashed;
         protoVessel.splashed = splashed;
-        // In the air, it's landed where it is until it flies off, so the ground doesn't come up to meet it.
-        protoVessel.skipGroundPositioning = splashed || airborne;
-        protoVessel.skipGroundPositioningForDroppedPart = airborne;
+        // In the air, it's landed where it is until it flies off, so the ground doesn't come up to meet it. On ground that was
+        // measured, it's already standing on it. Otherwise KSP finds the ground when it goes off rails, which puts it on whatever is
+        // highest, a roof over it included.
+        protoVessel.skipGroundPositioning = splashed || airborne || measured;
+        protoVessel.skipGroundPositioningForDroppedPart = airborne || measured;
         protoVessel.vesselSpawning = landed && !airborne;
         AirborneStart.Set(protoVessel, airborne ? situation.airspeed : (float?)null);
 
@@ -371,7 +373,13 @@ public static class Spawner
             protoVessel.Load(HighLogic.CurrentGame.flightState);
 
         if (protoVessel.vesselRef != null)
+        {
+            // Landed vessels wait 75 frames before physics, a few seconds at a low frame rate, so the ground can appear under them.
+            // These don't need it: the ground was there to measure, or they're flying. Stock waits 5 for vessels built on EVA.
+            if (measured || airborne)
+                protoVessel.vesselRef.SetPhysicsHoldExpiryOverride();
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
+        }
 
         // The space centre's markers for vessels landed there are only made afresh when one goes.
         if (KSCVesselMarkers.fetch != null)
@@ -402,9 +410,9 @@ public static class Spawner
 
     // On the surface, also how high the root part is over the ground, or the sea.
     public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation, out double height) =>
-        GetPose(template, situation, template.ReferenceRotation, out height, out _);
+        GetPose(template, situation, template.ReferenceRotation, out height, out _, out _);
 
-    private static (Vector3d, Quaternion) GetPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative, out double height, out bool splashed)
+    private static (Vector3d, Quaternion) GetPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative, out double height, out bool splashed, out bool measured)
     {
         CelestialBody body = situation.body;
         Quaternion toRoot = Quaternion.Inverse(referenceRelative);
@@ -413,19 +421,18 @@ public static class Spawner
         {
             double UT = Planetarium.GetUniversalTime();
             height = -1;
-            splashed = false;
+            splashed = measured = false;
             return (situation.orbit.getPositionAtUT(UT), (situation.rotation ?? Placement.Prograde(situation.orbit, UT)) * toRoot);
         }
 
-        double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude, situation.groundSearchAltitude);
+        double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude, situation.groundSearchAltitude, out measured);
         bool water = body.ocean && terrain < 0;
         splashed = water && !situation.Airborne;
 
         Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
         Quaternion rotation = situation.rotation * toRoot ?? FaceHeading(frame * template.UprightRotation, referenceRelative, frame);
 
-        // Lift the vessel so its lowest part clears the ground. KSP puts it down properly
-        // when it goes off rails, but it should look right before then too.
+        // Lift the vessel so its lowest part clears the ground.
         height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + 0.5 + Math.Max(situation.radarAltitude, 0);
         double altitude = (water ? 0 : terrain) + height;
 
@@ -434,9 +441,10 @@ public static class Spawner
 
     // The height of whatever's there to stand on. The terrain height doesn't include things like
     // the runway and buildings, which are several metres higher at KSC, so when the scenery is
-    // loaded, ask it instead, looking down from the search altitude.
-    private static double SurfaceAltitude(CelestialBody body, double latitude, double longitude, double? searchAltitude)
+    // loaded, ask it instead, looking down from the search altitude. Measured is whether it could.
+    private static double SurfaceAltitude(CelestialBody body, double latitude, double longitude, double? searchAltitude, out bool measured)
     {
+        measured = false;
         if (body.pqsController == null)
             return 0;
 
@@ -449,8 +457,8 @@ public static class Spawner
             Vector3d up = body.GetSurfaceNVector(latitude, longitude);
             Vector3d origin = body.GetWorldSurfacePosition(latitude, longitude, from);
 
-            if (Physics.Raycast(origin, -up, out RaycastHit hit, (float)(from - Math.Max(terrain, 0)) + range, 1 << 15, QueryTriggerInteraction.Ignore))
-                terrain = Math.Max(terrain, body.GetAltitude(hit.point));
+            if (measured = Physics.Raycast(origin, -up, out RaycastHit hit, (float)(from - Math.Max(terrain, 0)) + range, 1 << 15, QueryTriggerInteraction.Ignore))
+                terrain = body.GetAltitude(hit.point);
         }
 
         return terrain;
