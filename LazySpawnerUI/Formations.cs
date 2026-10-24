@@ -224,6 +224,11 @@ internal struct Box
         if (measured.TryGetValue(vessel.persistentId, out var entry) && entry.partCount == partCount && Time.time - entry.time < 5f)
             return entry.bounds;
 
+        // Vessels come and go. Forget the ones not measured lately, now and then.
+        if (measured.Count > 100)
+            foreach (uint id in measured.Where(m => Time.time - m.Value.time > 5f).Select(m => m.Key).ToList())
+                measured.Remove(id);
+
         Bounds bounds = VesselBounds.FromVessel(vessel);
         measured[vessel.persistentId] = (partCount, Time.time, bounds);
         return bounds;
