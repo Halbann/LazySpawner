@@ -372,14 +372,17 @@ public static class Spawner
         if (!HighLogic.LoadedSceneIsEditor)
             protoVessel.Load(HighLogic.CurrentGame.flightState);
 
-        if (protoVessel.vesselRef != null)
+        Vessel vessel = protoVessel.vesselRef;
+        if (vessel != null)
         {
             // Landed vessels wait 75 frames before physics, a few seconds at a low frame rate, so the ground can appear under them.
             // These don't need it: the ground was there to measure, or they're flying. Stock waits 5 for vessels built on EVA.
             if (measured || airborne)
-                protoVessel.vesselRef.SetPhysicsHoldExpiryOverride();
-            DarkenLightsOnLoad(protoVessel.vesselRef);
-            GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
+                vessel.SetPhysicsHoldExpiryOverride();
+            if (measured && landed && !airborne && !splashed)
+                Once(GameEvents.onVesselGoOffRails, vessel, () => SettleOnGround(vessel));
+            Once(GameEvents.onVesselLoaded, vessel, () => DarkenLights(vessel));
+            GameEvents.onNewVesselCreated.Fire(vessel);
         }
 
         // The space centre's markers for vessels landed there are only made afresh when one goes.
@@ -387,29 +390,50 @@ public static class Spawner
             KSCVesselMarkers.fetch.RefreshMarkers();
     }
 
-    // Parts are made with their lights lit, and lights that are off are only dimmed once their parts have started, after the
-    // first frame has been drawn. Darken them before then, for a vessel that loads where it can be seen.
-    private static void DarkenLightsOnLoad(Vessel vessel)
+    // The next time the event fires for the vessel. Forgotten instead if the vessel is gone by the next time it fires for any.
+    private static void Once(EventData<Vessel> gameEvent, Vessel vessel, Action action)
     {
-        Vessel active = FlightGlobals.ActiveVessel;
-        if (!HighLogic.LoadedSceneIsFlight || active == null
-            || Vector3.Distance(vessel.transform.position, active.transform.position) > vessel.vesselRanges.GetSituationRanges(vessel.situation).load)
-            return;
-
-        EventData<Vessel>.OnEvent onLoaded = null;
-        onLoaded = loaded =>
+        EventData<Vessel>.OnEvent handler = null;
+        handler = fired =>
         {
-            if (loaded != vessel)
+            if (vessel != null && fired != vessel)
                 return;
 
-            GameEvents.onVesselLoaded.Remove(onLoaded);
-            foreach (Part part in vessel.parts)
-                foreach (ModuleLight module in part.FindModulesImplementing<ModuleLight>())
-                    if (!module.isOn)
-                        foreach (Light light in part.FindModelComponents<Light>(module.lightName))
-                            light.intensity = 0;
+            gameEvent.Remove(handler);
+            if (vessel != null)
+                action();
         };
-        GameEvents.onVesselLoaded.Add(onLoaded);
+        gameEvent.Add(handler);
+    }
+
+    // Parts are made with their lights lit, and lights that are off are only dimmed once their parts have started, after the
+    // first frame has been drawn. Darken them before then.
+    private static void DarkenLights(Vessel vessel)
+    {
+        foreach (Part part in vessel.parts)
+            foreach (ModuleLight module in part.FindModulesImplementing<ModuleLight>())
+                if (!module.isOn)
+                    foreach (Light light in part.FindModelComponents<Light>(module.lightName))
+                        light.intensity = 0;
+    }
+
+    // Between the ground and a vessel's lowest point, so it doesn't start touching it.
+    private const float groundGap = 0.05f;
+
+    // Stand the vessel on the ground under it by its lowest collider, as stock measures it. Its parts are as the craft saved them by
+    // now, unlike the part models the template measures, which can have a ramp or a bay door open. Moving it is still fine as long
+    // as physics hasn't stepped yet.
+    private static void SettleOnGround(Vessel vessel)
+    {
+        if (vessel.GetHeightFromTerrain(overRidePacked: true) < 0)
+            return;
+
+        vessel.groundCollisionHit = vessel.heightFromTerrainHit;
+        Vector3 up = FlightGlobals.getUpAxis(vessel.mainBody, vessel.transform.position);
+        float lowest = Mathf.Abs(vessel.getLowestPoint()) * Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
+        float lift = lowest + groundGap - vessel.heightFromTerrain;
+        vessel.Translate(up * lift);
+        Logger.Log($"Settled {vessel.GetDisplayName()} on the ground, {(lift < 0 ? "down" : "up")} {Math.Abs(lift):F2} m.");
     }
 
     // Relative to the root part, as KSP works it out from the parts' rigidbodies once they're loaded. Physicsless
@@ -459,7 +483,7 @@ public static class Spawner
         Quaternion rotation = situation.rotation * toRoot ?? FaceHeading(frame * template.UprightRotation, referenceRelative, frame);
 
         // Lift the vessel so its lowest part clears the ground.
-        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + 0.5 + Math.Max(situation.radarAltitude, 0);
+        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + groundGap + Math.Max(situation.radarAltitude, 0);
         double altitude = (water ? 0 : terrain) + height;
 
         return (body.GetWorldSurfacePosition(situation.latitude, situation.longitude, altitude), rotation);
