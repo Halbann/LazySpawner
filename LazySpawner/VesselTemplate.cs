@@ -84,15 +84,8 @@ public class VesselTemplate
             .First();
 
     // Height of the root part above the vessel's lowest point, when turned this way.
-    // Placing asks several times a frame, so without LINQ's garbage.
-    internal float HeightAboveBottom(Quaternion rotation)
-    {
-        Vector3 min = LandedBounds.min, max = LandedBounds.max;
-        float lowest = 0;
-        for (int i = 0; i < 8; i++)
-            lowest = Mathf.Min(lowest, (rotation * new Vector3((i & 1) == 0 ? min.x : max.x, (i & 2) == 0 ? min.y : max.y, (i & 4) == 0 ? min.z : max.z)).y);
-        return -lowest;
-    }
+    internal float HeightAboveBottom(Quaternion rotation) =>
+        -Mathf.Min(0, VesselBounds.Turn(LandedBounds, rotation).min.y);
 
     #region From Vessel
 

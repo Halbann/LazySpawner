@@ -63,7 +63,7 @@ public static class CraftSaver
         Quaternion rootInEditor = (facility == EditorFacility.SPH ? Quaternion.Euler(90, 0, 0) : Quaternion.identity) * Quaternion.Inverse(referenceInRoot);
 
         // The root part where the editor puts the first part, as stock craft have it, but lifted if that's through the floor.
-        Bounds inEditor = VesselBounds.Enclose(VesselBounds.Corners(VesselBounds.FromVessel(vessel, includeLaunchClamps: false)).Select(corner => rootInEditor * corner));
+        Bounds inEditor = VesselBounds.Turn(VesselBounds.FromVessel(vessel, includeLaunchClamps: false), rootInEditor);
         Vector3 rootPosition = new Vector3(0, Mathf.Max(facility == EditorFacility.SPH ? 10 : 15, 1 - inEditor.min.y), 0);
 
         ConfigNode craft = SaveShip(vessel, parts, facility);

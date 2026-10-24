@@ -292,7 +292,7 @@ internal class CraftParser
             return;
 
         // Our bounds, seen along the editor's axes.
-        Bounds editor = Transform(template.SpaceBounds, rootInEditor);
+        Bounds editor = VesselBounds.Turn(template.SpaceBounds, rootInEditor);
         Vector3 size = Vector3.Max(editor.size, craftSize);
         if (size == editor.size)
             return;
@@ -300,15 +300,12 @@ internal class CraftParser
         editor.size = size;
 
         // Back into the vessel's frame.
-        Bounds grown = Transform(editor, Quaternion.Inverse(rootInEditor));
+        Bounds grown = VesselBounds.Turn(editor, Quaternion.Inverse(rootInEditor));
         Bounds landed = template.LandedBounds;
         landed.Encapsulate(grown);
         template.SpaceBounds = grown;
         template.LandedBounds = landed;
     }
-
-    private static Bounds Transform(Bounds bounds, Quaternion rotation) =>
-        VesselBounds.Enclose(VesselBounds.Corners(bounds).Select(corner => rotation * corner));
 
     #endregion
 

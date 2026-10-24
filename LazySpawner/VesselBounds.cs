@@ -110,11 +110,18 @@ public static class VesselBounds
         return local == null ? Enumerable.Empty<Vector3>() : Corners(local.Value).Select(toVessel.MultiplyPoint3x4);
     }
 
-    internal static IEnumerable<Vector3> Corners(Bounds bounds)
+    internal static IEnumerable<Vector3> Corners(Bounds bounds) => Enumerable.Range(0, 8).Select(i => Corner(bounds, i));
+
+    private static Vector3 Corner(Bounds bounds, int i) =>
+        new Vector3((i & 1) == 0 ? bounds.min.x : bounds.max.x, (i & 2) == 0 ? bounds.min.y : bounds.max.y, (i & 4) == 0 ? bounds.min.z : bounds.max.z);
+
+    // The box around a box turned this way. Placing asks several times a frame, so without LINQ's garbage.
+    internal static Bounds Turn(Bounds bounds, Quaternion rotation)
     {
-        Vector3 min = bounds.min, max = bounds.max;
-        for (int i = 0; i < 8; i++)
-            yield return new Vector3((i & 1) == 0 ? min.x : max.x, (i & 2) == 0 ? min.y : max.y, (i & 4) == 0 ? min.z : max.z);
+        Bounds turned = new Bounds(rotation * Corner(bounds, 0), Vector3.zero);
+        for (int i = 1; i < 8; i++)
+            turned.Encapsulate(rotation * Corner(bounds, i));
+        return turned;
     }
 
     // The smallest box around the points.
