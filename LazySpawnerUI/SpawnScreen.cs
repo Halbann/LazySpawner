@@ -408,7 +408,7 @@ public class SpawnScreen : MonoBehaviour
             Vessel original = Controller.CloneSource();
             return original == null
                 ? orange + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_NoActiveVessel" : "Craft_SelectVessel")
-                : $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_CloneActive" : "Craft_CloneSelected", original.protoVessel?.protoPartSnapshots.Count ?? original.parts.Count);
+                : $"<b>{original.GetDisplayName()}</b>\n{grey}" + Loc(HighLogic.LoadedSceneIsFlight ? "Craft_CloneActive" : "Craft_CloneSelected", original.loaded ? original.parts.Count : original.protoVessel.protoPartSnapshots.Count);
         }
 
         Craft craft = Controller.SelectedCraft;
