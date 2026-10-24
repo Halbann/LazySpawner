@@ -281,11 +281,21 @@ public class SpawnScreen : MonoBehaviour
 
         // What happens, set apart as a list, and the buttons that make it happen. Warnings have orange bullets,
         // and the closing tags keep their colour from running on.
+        // It makes several lists and strings, so a few times a second rather than every frame.
         bool ready = false;
         List<string> summary = new List<string>();
-        refresh.Add(() => summary = Summary(out ready));
-        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Count > 0)),
-            () => string.Join("\n", summary.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>"))).paragraphSpacing = 12;
+        string summaryText = "";
+        float nextSummary = 0;
+        refresh.Add(() =>
+        {
+            if (Time.unscaledTime < nextSummary)
+                return;
+
+            nextSummary = Time.unscaledTime + 0.2f;
+            summary = Summary(out ready);
+            summaryText = string.Join("\n", summary.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>"));
+        });
+        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Count > 0)), () => summaryText).paragraphSpacing = 12;
 
         DebugUI.Spacer(content, 8);
         Transform buttons = DebugUI.Row(content);
