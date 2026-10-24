@@ -131,8 +131,7 @@ public class PlacementTool : MonoBehaviour
     private List<SpawnSituation> UpdatePlacing(VesselTemplate template, bool map)
     {
         // Turn with the editor's keys, the same way: 90° a press, or 5° with its fine tweak key.
-        bool fine = GameSettings.Editor_fineTweak.GetKey(true);
-        float step = fine ? 5 : 90;
+        float step = Fine ? 5 : 90;
         bool Pressed(KeyBinding key) => key.GetKeyDown(true);
         float roll = Pressed(GameSettings.Editor_rollLeft) ? step : Pressed(GameSettings.Editor_rollRight) ? -step : 0;
 
@@ -154,18 +153,15 @@ public class PlacementTool : MonoBehaviour
         }
 
         // Ctrl and the scroll wheel for more or fewer, Alt for higher or lower, without the camera zooming meanwhile.
-        bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-        bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.AltGr);
-        ControlTypes locked = ctrl || alt ? locks | ControlTypes.CAMERACONTROLS : locks;
+        ControlTypes locked = Ctrl || Alt ? locks | ControlTypes.CAMERACONTROLS : locks;
         if (InputLockManager.GetControlLock(lockID) != locked)
             InputLockManager.SetControlLock(locked, lockID);
 
         int scroll = Math.Sign(GameSettings.AXIS_MOUSEWHEEL.GetAxis());
-        if (ctrl && scroll != 0)
+        if (Ctrl && scroll != 0)
             Controller.count.Text = Mathf.Clamp(Number + scroll, 1, 1000).ToString();
-        // As many notches for each tenfold: 5 m at a time up to 100 m, then 50 m at a time up to 1 km, and so on. An eighth of that with fine tweak.
-        else if (alt && scroll != 0 && kind == Kind.Landed)
-            placeAltitude = Mathf.Max(0, placeAltitude + scroll * Mathf.Pow(10, Mathf.Max(1, Mathf.Floor(Mathf.Log10(Mathf.Max(placeAltitude + scroll * 0.5f, 1))))) / (fine ? 16 : 2));
+        else if (Alt && scroll != 0 && kind == Kind.Landed)
+            placeAltitude = Mathf.Max(0, placeAltitude + scroll * HeightStep(scroll));
 
         // Stop on escape, or on a right click that wasn't a camera drag.
         if (Input.GetMouseButtonDown(1))
@@ -187,7 +183,7 @@ public class PlacementTool : MonoBehaviour
         {
             gui.Spawn(placed);
 
-            if (!ctrl)
+            if (!Ctrl)
                 Finish();
         }
 
@@ -237,7 +233,6 @@ public class PlacementTool : MonoBehaviour
 
         placeValid = slope < 30 && clear;
         placeInfo = $"{Named(template)} · {HeadingText}{InTheAir}" +
-            (nearest != null && clear ? " · " + Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : "") +
             (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
             (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
         return placed;
@@ -271,8 +266,7 @@ public class PlacementTool : MonoBehaviour
         float gap = Clearance(template, placed, out Vessel nearest);
 
         placeValid = gap >= 1f;
-        placeInfo = $"{Named(template)} · " +
-            (nearest == null ? "" : placeValid ? Loc("Placing_Clear", Distance(gap), nearest.GetDisplayName()) : $"{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
+        placeInfo = Named(template) + (placeValid ? "" : $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
         return placed;
     }
 
@@ -465,6 +459,14 @@ public class PlacementTool : MonoBehaviour
     private static int Number => Controller.count.Valid ? Controller.count.value : 1;
 
     private static float Airspeed => Controller.airspeed.Valid ? Controller.airspeed.value : 0;
+
+    private static bool Ctrl => Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+    private static bool Alt => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.AltGr);
+    private static bool Fine => GameSettings.Editor_fineTweak.GetKey(true);
+
+    // As many notches for each tenfold: 10 m at a time up to 100 m, then 100 m at a time up to 1 km, and so on. An eighth of that with fine tweak.
+    private float HeightStep(int direction) =>
+        Mathf.Pow(10, Mathf.Max(1, Mathf.Floor(Mathf.Log10(Mathf.Max(placeAltitude + direction * 0.5f, 1))))) / (Fine ? 8 : 1);
 
     private string InTheAir => placeAltitude > 0 ? " · " + Loc("Placing_InTheAir", Distance(placeAltitude), Airspeed.ToString("F0")) : "";
 
@@ -682,14 +684,18 @@ public class PlacementTool : MonoBehaviour
 
         string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
         string all = string.Concat(new[] { GameSettings.Editor_pitchDown, GameSettings.Editor_yawLeft, GameSettings.Editor_pitchUp, GameSettings.Editor_yawRight, GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight }.Select(Key));
-        string fine = Key(GameSettings.Editor_fineTweak);
+        bool turns = kind != Kind.Orbit && !Controller.randomRotation;
         string turning = kind == Kind.Orbit ? Loc("Placing_TiltOrbit") + " · " + Loc("Placing_Reverse", roll)
-            : Controller.randomRotation ? null
-            : kind == Kind.Space ? Loc("Placing_Rotate", all, fine, Key(GameSettings.Editor_resetRotation))
-            : Loc("Placing_Turn", roll, fine);
-        // What the mouse does, then the keys that adjust it.
-        string controls = string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
-            string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height", fine) : null, Loc("Placing_Count") }.Where(s => s != null));
+            : !turns ? null
+            : kind == Kind.Space ? Loc("Placing_Rotate", all, Key(GameSettings.Editor_resetRotation))
+            : Loc("Placing_Turn", roll);
+
+        // Only what the modifiers held do, or with none, what the mouse does, then the keys that adjust it.
+        string controls = Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
+            : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", HeightStep(1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
+            : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
+            : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
+                string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, Loc("Placing_Count") }.Where(s => s != null));
 
         GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + controls + "</color>");
         Vector2 size = hintStyle.CalcSize(content);
