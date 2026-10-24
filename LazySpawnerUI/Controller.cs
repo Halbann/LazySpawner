@@ -461,20 +461,27 @@ public class Controller : MonoBehaviour
         return cached.template;
     }
 
+    // The map draws them every frame. Their orbits carry on from when they were made, so making them a few times a second is plenty.
     internal List<SpawnSituation> PreviewSituations(VesselTemplate template)
     {
-        if (!count.Valid)
-            return null;
+        if (template == preview.template && (int)situationMode.Value == preview.mode && Time.unscaledTime < preview.until)
+            return preview.situations;
 
+        List<SpawnSituation> situations = null;
         try
         {
-            return CreateSituations(template, count, true);
+            if (count.Valid)
+                situations = CreateSituations(template, count, true);
         }
         catch
         {
-            return null;
         }
+
+        preview = (template, (int)situationMode.Value, situations, Time.unscaledTime + 0.25f);
+        return situations;
     }
+
+    private (VesselTemplate template, int mode, List<SpawnSituation> situations, float until) preview;
 
     // Describe an orbit in the advanced orbit fields.
     internal static void SetOrbit(Orbit orbit)
