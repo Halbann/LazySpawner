@@ -5,6 +5,7 @@
 using KSP.UI.Screens.DebugToolbar;
 using KSP.UI.TooltipTypes;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
@@ -76,13 +77,36 @@ internal static class DebugUI
     {
         GameObject clone = Object.Instantiate(prefab, parent, false);
         clone.SetActive(true);
-
-        LayoutElement layout = clone.GetComponent<LayoutElement>() ?? clone.AddComponent<LayoutElement>();
-        // A fixed width is a minimum too, so a narrow window cuts widgets off, as stock does, instead of squashing them.
-        layout.minHeight = layout.preferredHeight = 20;
-        layout.minWidth = layout.preferredWidth = width;
-        layout.flexibleWidth = width < 0 ? 1 : 0;
+        Size(clone, width, 20).flexibleWidth = width < 0 ? 1 : 0;
         return clone;
+    }
+
+    // A fixed size is a minimum too, so a narrow window cuts widgets off, as stock does, instead of squashing them.
+    public static LayoutElement Size(GameObject widget, float? width = null, float? height = null)
+    {
+        LayoutElement layout = widget.GetComponent<LayoutElement>() ?? widget.AddComponent<LayoutElement>();
+        if (width is float w)
+            layout.minWidth = layout.preferredWidth = w;
+        if (height is float h)
+            layout.minHeight = layout.preferredHeight = h;
+        return layout;
+    }
+
+    // Filling its parent, or stretched across the top of it.
+    public static RectTransform Fill(RectTransform rect)
+    {
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        return rect;
+    }
+
+    public static RectTransform Top(RectTransform rect)
+    {
+        rect.anchorMin = new Vector2(0, 1);
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 1);
+        return rect;
     }
 
     // An empty UI object, for laying out others.
@@ -108,12 +132,12 @@ internal static class DebugUI
     }
 
     // Widgets side by side.
-    public static RectTransform Row(Transform parent, float spacing = 4)
+    public static RectTransform Row(Transform parent, float spacing = 4, TextAnchor alignment = TextAnchor.MiddleLeft)
     {
         RectTransform row = Empty(parent, "Row");
         HorizontalLayoutGroup layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
         layout.spacing = spacing;
-        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childAlignment = alignment;
         layout.childControlWidth = layout.childControlHeight = true;
         layout.childForceExpandWidth = layout.childForceExpandHeight = false;
         return row;
@@ -157,11 +181,16 @@ internal static class DebugUI
         return tmp;
     }
 
+    // Typing in a field mustn't fire the ship's keys: "1" is action group 1, and a space stages.
+    public const string TypingLock = "LazySpawnerTyping";
+
     public static TMP_InputField Field(Transform parent, string text, Action<string> changed, float width = -1)
     {
         TMP_InputField input = Clone(P.field, parent, width).GetComponent<TMP_InputField>();
         input.text = text;
         input.onValueChanged.AddListener(s => changed(s));
+        input.onSelect.AddListener(_ => InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, TypingLock));
+        input.onDeselect.AddListener(_ => InputLockManager.RemoveControlLock(TypingLock));
         return input;
     }
 
@@ -179,10 +208,7 @@ internal static class DebugUI
         GameObject clone = Clone(P.toggle, parent);
         TextMeshProUGUI tmp = clone.GetComponentInChildren<TextMeshProUGUI>();
         tmp.text = text;
-
-        LayoutElement layout = clone.GetComponent<LayoutElement>();
-        layout.flexibleWidth = 0;
-        layout.minWidth = layout.preferredWidth = tmp.GetPreferredValues(text).x + 36;
+        Size(clone, tmp.GetPreferredValues(text).x + 36).flexibleWidth = 0;
 
         Toggle t = clone.GetComponent<Toggle>();
         t.isOn = on;
@@ -196,11 +222,11 @@ internal static class DebugUI
         Transform row = Row(parent, 2);
         float width = names.Max(name => P.button.GetComponentInChildren<TextMeshProUGUI>().GetPreferredValues(name).x) + 16;
 
+        // At least as wide as the widest, sharing what's left of the row.
         return names.Select((name, i) =>
         {
             Button tab = Button(row, name, () => chosen(i));
-            LayoutElement layout = tab.GetComponent<LayoutElement>();
-            layout.minWidth = layout.preferredWidth = width;
+            Size(tab.gameObject, width);
             return tab;
         }).ToArray();
     }
@@ -217,19 +243,14 @@ internal static class DebugUI
     {
         GameObject clone = Clone(P.scrollView, parent);
         clone.name = "ScrollView";
-        LayoutElement layout = clone.GetComponent<LayoutElement>();
-        layout.minHeight = layout.preferredHeight = minHeight;
-        layout.flexibleHeight = 1;
+        Size(clone, height: minHeight).flexibleHeight = 1;
 
         // Fresh contents, without the stock tree view and its layout.
         ScrollRect scroll = clone.GetComponent<ScrollRect>();
         if (scroll.viewport == null)
             scroll.viewport = (RectTransform)scroll.content.parent;
 
-        RectTransform content = Empty(scroll.viewport, "Content");
-        content.anchorMin = new Vector2(0, 1);
-        content.anchorMax = Vector2.one;
-        content.pivot = new Vector2(0.5f, 1);
+        RectTransform content = Top(Empty(scroll.viewport, "Content"));
         content.sizeDelta = Vector2.zero;
         Object.DestroyImmediate(scroll.content.gameObject);
         scroll.content = content;
@@ -257,4 +278,92 @@ internal static class DebugUI
     }
 
     #endregion
+}
+
+// A screen in the console, built from DebugUI's widgets, some of them bound to the game. UpdateBindings brings those up to date.
+internal abstract class ConsoleScreen : MonoBehaviour
+{
+    protected const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
+    private readonly List<Action> bindings = new List<Action>();
+
+    protected void OnDisable() => InputLockManager.RemoveControlLock(DebugUI.TypingLock);
+
+    // Built in Start rather than Awake, so that after a hot reload it's built by the new code. A hot reload copies the old
+    // screen's widgets across, so they go first.
+    protected void Clear()
+    {
+        foreach (Transform child in transform)
+            Destroy(child.gameObject);
+        bindings.Clear();
+        DebugUI.Fill((RectTransform)transform);
+    }
+
+    protected RectTransform Page() => DebugUI.Fill(DebugUI.Column(transform, 3, new RectOffset(4, 4, 4, 4)));
+
+    protected void UpdateBindings()
+    {
+        foreach (Action binding in bindings)
+            binding();
+    }
+
+    protected void Bind(Action binding) => bindings.Add(binding);
+
+    protected T Show<T>(T widget, Func<bool> when) where T : Component
+    {
+        Bind(() =>
+        {
+            bool show = when();
+            if (widget.gameObject.activeSelf != show)
+                widget.gameObject.SetActive(show);
+        });
+        return widget;
+    }
+
+    protected T Enable<T>(T widget, Func<bool> when) where T : Selectable
+    {
+        Bind(() => widget.interactable = when());
+        return widget;
+    }
+
+    protected TextMeshProUGUI Text(TextMeshProUGUI text, Func<string> content)
+    {
+        Bind(() =>
+        {
+            string s = content();
+            if (text.text != s)
+                text.text = s;
+        });
+        return text;
+    }
+
+    // Shows which one is chosen, coloured again only when that changes.
+    protected Button[] Tabs(Transform parent, Func<int> chosen, Action<int> choose, params string[] names)
+    {
+        Button[] tabs = DebugUI.Tabs(parent, names, choose);
+        int shown = -1;
+        Bind(() =>
+        {
+            if (chosen() == shown)
+                return;
+            shown = chosen();
+            for (int i = 0; i < tabs.Length; i++)
+                DebugUI.Select(tabs[i], i == shown);
+        });
+        return tabs;
+    }
+
+    // Every row of the form is a label in the label column, then its controls, so they all line up.
+    protected static Transform Line(Transform parent, string label = "", string tooltip = null)
+    {
+        Transform row = DebugUI.Row(parent);
+        TextMeshProUGUI text = DebugUI.Label(row, label, DebugUI.LabelWidth);
+        if (tooltip != null)
+            DebugUI.Tooltip(text, tooltip);
+        return row;
+    }
+
+    // What will happen, a line each, set apart in a box. Warnings start orange, and their bullets are too.
+    // The closing tags keep the colour from running on.
+    protected static string Bullets(IEnumerable<string> lines) =>
+        string.Join("\n", lines.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>"));
 }

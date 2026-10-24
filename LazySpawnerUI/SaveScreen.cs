@@ -11,11 +11,9 @@ namespace LazySpawner;
 
 // The Save Vessel screen, under Cheats in the debug console: the active vessel, saved as a craft. It's only
 // brought up to date when something changes: it's shown, the vessel or scene changes, or a choice on it does.
-public class SaveScreen : MonoBehaviour
+internal class SaveScreen : ConsoleScreen
 {
     public const string ScreenName = "Save Vessel";
-    private const string typingLock = "LazySpawnerSaveTyping";
-    private const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
 
     private GameObject content, resultBox, edit;
     private string savedPath;
@@ -33,12 +31,9 @@ public class SaveScreen : MonoBehaviour
 
     #region Lifecycle
 
-    // Built in Start, so that after a hot reload it's rebuilt by the new code.
     protected void Start()
     {
-        foreach (Transform child in transform)
-            Destroy(child.gameObject);
-
+        Clear();
         Build();
         Refresh();
         GameEvents.onVesselChange.Add(OnVesselChange);
@@ -57,8 +52,6 @@ public class SaveScreen : MonoBehaviour
             Refresh();
     }
 
-    protected void OnDisable() => InputLockManager.RemoveControlLock(typingLock);
-
     private void OnVesselChange(Vessel _) => Refresh();
     private void OnLevelWasLoaded(GameScenes _) => Refresh();
 
@@ -66,8 +59,7 @@ public class SaveScreen : MonoBehaviour
 
     private void Build()
     {
-        SpawnScreen.Stretch((RectTransform)transform);
-        Transform page = DebugUI.ScrollList(SpawnScreen.Stretch(DebugUI.Column(transform, 3, new RectOffset(4, 4, 4, 4))), 100);
+        Transform page = DebugUI.ScrollList(Page(), 100);
         notHere = DebugUI.Paragraph(page);
         content = DebugUI.Column(page).gameObject;
         Transform column = content.transform;
@@ -75,12 +67,9 @@ public class SaveScreen : MonoBehaviour
         about = DebugUI.Paragraph(column);
         DebugUI.Spacer(column, 6);
 
-        // Empty, it's named as the hint says. Typing "1" mustn't fire action group 1, or a space stage.
-        nameField = DebugUI.Field(SpawnScreen.Line(column, Loc("Save_Name")), "", _ => Refresh());
-        nameField.onSelect.AddListener(_ => InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLock));
-        nameField.onDeselect.AddListener(_ => InputLockManager.RemoveControlLock(typingLock));
-
-        buildings = DebugUI.Tabs(SpawnScreen.Line(column, Loc("Save_Building")), new[] { Loc("Building_VAB"), Loc("Building_SPH") }, i =>
+        // Empty, it's named as the hint says.
+        nameField = DebugUI.Field(Line(column, Loc("Save_Name")), "", _ => Refresh());
+        buildings = DebugUI.Tabs(Line(column, Loc("Save_Building")), new[] { Loc("Building_VAB"), Loc("Building_SPH") }, i =>
         {
             facility = i == 0 ? EditorFacility.VAB : EditorFacility.SPH;
             Refresh();
@@ -91,9 +80,7 @@ public class SaveScreen : MonoBehaviour
         summary = DebugUI.Paragraph(DebugUI.Box(column));
         summary.paragraphSpacing = 12;
         DebugUI.Spacer(column, 8);
-        Transform buttons = DebugUI.Row(column);
-        buttons.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
-        DebugUI.Button(buttons, Loc("Button_Save"), Save, DebugUI.ControlWidth);
+        DebugUI.Button(DebugUI.Row(column, alignment: TextAnchor.MiddleCenter), Loc("Button_Save"), Save, DebugUI.ControlWidth);
         DebugUI.Spacer(column);
         resultBox = DebugUI.Box(column).gameObject;
         Transform resultRow = DebugUI.Row(resultBox.transform, 6);
@@ -126,7 +113,6 @@ public class SaveScreen : MonoBehaviour
         freeName = CraftSaver.FreeName(vessel, facility);
         ((TextMeshProUGUI)nameField.placeholder).text = freeName;
 
-        // Warnings have orange bullets, and the closing tags keep their colour from running on.
         List<string> lines = new List<string> { Loc("Save_Summary_Where", Loc(facility == EditorFacility.SPH ? "Building_SPH" : "Building_VAB")) };
         if (vessel.FindPartModulesImplementing<ModuleDockingNode>().Any(d => d.fsm?.currentStateName.StartsWith("Docked") == true))
             lines.Add(Loc("Save_Summary_Docked"));
@@ -135,7 +121,7 @@ public class SaveScreen : MonoBehaviour
         lines.Add(Loc("Save_Summary_Rotated"));
         if (CraftName != freeName && File.Exists(CraftSaver.PathFor(CraftName, facility)))
             lines.Add(orange + Loc("Save_Summary_Replace", CraftName));
-        summary.text = string.Join("\n", lines.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>"));
+        summary.text = Bullets(lines);
     }
 
     private void Save()

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using static LazySpawner.Localisation;
 
@@ -21,12 +20,11 @@ internal class SpawnScreenRegistration : MonoBehaviour
 
 // The Spawn Vessels screen, under Cheats in the debug console (Alt+F12). It's built from the stock
 // screens' own widgets, and kept in step with the controller's settings every frame.
-public class SpawnScreen : MonoBehaviour
+internal class SpawnScreen : ConsoleScreen
 {
     private static SpawnScreen instance;
     public static bool Visible => instance != null && instance.isActiveAndEnabled && DebugUI.Shown;
 
-    private readonly List<Action> refresh = new List<Action>();
     private readonly List<(GameObject widget, ITextField field)> fields = new List<(GameObject, ITextField)>();
     private RectTransform main, picker;
     private GameObject notHere, content;
@@ -34,17 +32,13 @@ public class SpawnScreen : MonoBehaviour
     private string listed;
     private float nextClipboardCheck;
 
-
-    private const string typingLock = "LazySpawnerTyping";
-    private const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
     private static readonly Color invalidColor = new Color(1f, 0.6f, 0.5f);
 
     private static Controller C => Controller.Instance;
 
     #region Lifecycle
 
-    // Built in Start rather than Awake, so that after a hot reload it's rebuilt by the new code. The screen
-    // outlives scenes, so it's rebuilt for each, and what depends on the scene is decided as it's built.
+    // The screen outlives scenes, so it's rebuilt for each, and what depends on the scene is decided as it's built.
     protected void Start()
     {
         Build(HighLogic.LoadedScene);
@@ -56,15 +50,11 @@ public class SpawnScreen : MonoBehaviour
     private void Build(GameScenes scene)
     {
         instance = this;
-        // A hot reload copies these across, full of the old screen's widgets.
-        foreach (Transform child in transform)
-            Destroy(child.gameObject);
-        refresh.Clear();
+        Clear();
         fields.Clear();
         rows.Clear();
         shownFrom = -1;
 
-        Stretch((RectTransform)transform);
         main = Page();
         picker = Page();
         BuildMain(DebugUI.ScrollList(main, 100));
@@ -74,21 +64,8 @@ public class SpawnScreen : MonoBehaviour
 
     protected void OnEnable() => nextClipboardCheck = 0;
 
-    protected void OnDisable() => InputLockManager.RemoveControlLock(typingLock);
-
     protected void Update()
     {
-        // Otherwise typing "1" fires action group 1, and a space stages.
-        GameObject selected = EventSystem.current?.currentSelectedGameObject;
-        // Setting a lock tells every mod listening, so only when it isn't set yet.
-        if (selected != null && selected.transform.IsChildOf(transform) && selected.GetComponent<TMP_InputField>()?.isFocused == true)
-        {
-            if (InputLockManager.GetControlLock(typingLock) == ControlTypes.None)
-                InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLock);
-        }
-        else
-            InputLockManager.RemoveControlLock(typingLock);
-
         // Where it doesn't work, like the space centre, there's only a note to say so.
         notHere.SetActive(C == null);
         content.SetActive(C != null);
@@ -106,68 +83,18 @@ public class SpawnScreen : MonoBehaviour
                 ShowPicker(false);
         }
 
-        foreach (Action action in refresh)
-            action();
-    }
-
-    private RectTransform Page() =>
-        Stretch(DebugUI.Column(transform, 3, new RectOffset(4, 4, 4, 4)));
-
-    internal static RectTransform Stretch(RectTransform rect)
-    {
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = rect.offsetMax = Vector2.zero;
-        return rect;
+        UpdateBindings();
     }
 
     #endregion
 
     #region Binding
 
-    private T Show<T>(T widget, Func<bool> when) where T : Component
-    {
-        refresh.Add(() =>
-        {
-            bool show = when();
-            if (widget.gameObject.activeSelf != show)
-                widget.gameObject.SetActive(show);
-        });
-        return widget;
-    }
-
-    private T Enable<T>(T widget, Func<bool> when) where T : Selectable
-    {
-        refresh.Add(() => widget.interactable = when());
-        return widget;
-    }
-
-    private TextMeshProUGUI Text(TextMeshProUGUI text, Func<string> content)
-    {
-        refresh.Add(() =>
-        {
-            string s = content();
-            if (text.text != s)
-                text.text = s;
-        });
-        return text;
-    }
-
-    // Every row of the form is a label in the label column, then its controls, so they all line up.
-    internal static Transform Line(Transform parent, string label = "", string tooltip = null)
-    {
-        Transform row = DebugUI.Row(parent);
-        TextMeshProUGUI text = DebugUI.Label(row, label, DebugUI.LabelWidth);
-        if (tooltip != null)
-            DebugUI.Tooltip(text, tooltip);
-        return row;
-    }
-
     private TMP_InputField Field(Transform parent, ITextField setting)
     {
         TMP_InputField input = DebugUI.Field(Line(parent, setting.Title, setting.Tooltip), setting.Text, s => setting.Text = s, DebugUI.ControlWidth);
         fields.Add((input.gameObject, setting));
-        refresh.Add(() =>
+        Bind(() =>
         {
             if (!input.isFocused && input.text != setting.Text)
                 input.text = setting.Text;
@@ -186,28 +113,8 @@ public class SpawnScreen : MonoBehaviour
         if (when != null)
             Show(line, when);
 
-        refresh.Add(() => toggle.SetIsOnWithoutNotify(setting));
+        Bind(() => toggle.SetIsOnWithoutNotify(setting));
         return toggle;
-    }
-
-    private Button[] Tabs<T>(Transform parent, Setting<T> setting, params string[] names) where T : Enum
-    {
-        Button[] tabs = DebugUI.Tabs(parent, names, i => setting.Value = (T)Enum.ToObject(typeof(T), i));
-        // Only when it changes: comparing enums as numbers boxes them, every frame.
-        T shown = default;
-        bool first = true;
-        refresh.Add(() =>
-        {
-            if (!first && EqualityComparer<T>.Default.Equals(setting.Value, shown))
-                return;
-
-            first = false;
-            shown = setting.Value;
-            int selected = Convert.ToInt32(shown);
-            for (int i = 0; i < tabs.Length; i++)
-                DebugUI.Select(tabs[i], selected == i);
-        });
-        return tabs;
     }
 
     // A panel shown only when it applies.
@@ -227,10 +134,9 @@ public class SpawnScreen : MonoBehaviour
 
         // Craft: its picture where the labels go, and what it is where the controls go.
         DebugUI.Heading(content, Loc("Heading_Craft"));
-        Transform card = DebugUI.Row(content);
-        card.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.UpperLeft;
+        Transform card = DebugUI.Row(content, alignment: TextAnchor.UpperLeft);
         RawImage thumbnail = Thumbnail(card, 64);
-        refresh.Add(() =>
+        Bind(() =>
         {
             thumbnail.texture = Controller.source == Controller.Source.Craft && !Controller.InEditor ? Controller.SelectedCraft?.Thumbnail : null;
             thumbnail.enabled = thumbnail.texture != null;
@@ -258,7 +164,8 @@ public class SpawnScreen : MonoBehaviour
 
         // Where.
         DebugUI.Heading(content, Loc("Heading_Where"));
-        Button[] modes = Tabs(content, Controller.situationMode, Loc("Mode_Place"), Loc("Mode_Nearby"), Loc("Mode_Orbit"), Loc("Mode_LaunchSite"));
+        Button[] modes = Tabs(content, () => (int)Controller.situationMode.Value, i => Controller.situationMode.Value = (Controller.SituationMode)i,
+            Loc("Mode_Place"), Loc("Mode_Nearby"), Loc("Mode_Orbit"), Loc("Mode_LaunchSite"));
         Enable(modes[0], () => Controller.CanPlace);
         DebugUI.Tooltip(modes[0], Loc(Controller.AtSpaceCentre ? "Mode_Place_Tooltip_SpaceCentre" : "Mode_Place_Tooltip"));
         Enable(modes[1], () => Controller.InFlight);
@@ -296,38 +203,36 @@ public class SpawnScreen : MonoBehaviour
 
         // Crew.
         DebugUI.Heading(content, Loc("Heading_Crew"));
-        Tabs(content, Controller.crewMode, Loc("Crew_None"), Loc("Crew_Pilot"), Loc("Crew_Command"), Loc("Crew_FillAll"));
+        Tabs(content, () => (int)Controller.crewMode.Value, i => Controller.crewMode.Value = (CrewMode)i, Loc("Crew_None"), Loc("Crew_Pilot"), Loc("Crew_Command"), Loc("Crew_FillAll"));
         Toggle(content, Loc("Crew_AlwaysHire"), Controller.onlyNewKerbals, Loc("Crew_AlwaysHire_Tooltip"), () => Controller.crewMode != CrewMode.None);
         DebugUI.Spacer(content, 10);
 
-        // What happens, set apart as a list, and the buttons that make it happen. Warnings have orange bullets,
-        // and the closing tags keep their colour from running on.
-        // It makes several lists and strings, so a few times a second rather than every frame.
+        // What happens, and the buttons that make it happen. It makes several lists and strings, so a few times a
+        // second rather than every frame.
         bool ready = false;
         List<string> summary = new List<string>();
         string summaryText = "";
         float nextSummary = 0;
-        refresh.Add(() =>
+        Bind(() =>
         {
             if (Time.unscaledTime < nextSummary)
                 return;
 
             nextSummary = Time.unscaledTime + 0.2f;
             summary = Summary(out ready);
-            summaryText = string.Join("\n", summary.Select(line => (line.StartsWith(orange) ? orange : "") + "•<indent=14>" + line + "</color></color></indent>"));
+            summaryText = Bullets(summary);
         });
         Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Count > 0)), () => summaryText).paragraphSpacing = 12;
 
         DebugUI.Spacer(content, 8);
-        Transform buttons = DebugUI.Row(content);
-        buttons.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+        Transform buttons = DebugUI.Row(content, alignment: TextAnchor.MiddleCenter);
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
         Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => ready && C.spawnRoutine == null);
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
         // Where to click, or that the editor stays open.
         KSP.UI.TooltipTypes.TooltipController_Text spawnTooltip = DebugUI.Tooltip(spawn, "").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
         string placeTooltip = Loc(Controller.AtSpaceCentre ? "Button_Place_Tooltip_SpaceCentre" : "Button_Place_Tooltip"), editorTooltip = Loc("Button_Spawn_Editor_Tooltip");
-        refresh.Add(() =>
+        Bind(() =>
         {
             spawnTooltip.enabled = placing() || Controller.InEditor;
             spawnTooltip.textString = placing() ? placeTooltip : editorTooltip;
@@ -357,8 +262,7 @@ public class SpawnScreen : MonoBehaviour
     private static RawImage Thumbnail(Transform parent, float size = 36)
     {
         GameObject image = DebugUI.Empty(parent, "Thumbnail").gameObject;
-        LayoutElement layout = image.AddComponent<LayoutElement>();
-        layout.minWidth = layout.preferredWidth = layout.minHeight = layout.preferredHeight = size;
+        DebugUI.Size(image, size, size);
         return image.AddComponent<RawImage>();
     }
 
@@ -605,13 +509,13 @@ public class SpawnScreen : MonoBehaviour
         DebugUI.Tooltip(DebugUI.Button(top, Loc("Picker_Browse"), () => { ShowPicker(false); C.StartCoroutine(C.StockCraftBrowser()); }, 70), Loc("Picker_Browse_Tooltip"));
         DebugUI.Button(top, Loc("Picker_Back"), () => ShowPicker(false), 50);
 
-        Tabs(page, CraftList.source, Loc("Picker_Recent"), Loc("Picker_ThisSave"), Loc("Picker_AllSaves"), Loc("Picker_Stock"));
+        Tabs(page, () => (int)CraftList.source.Value, i => CraftList.source.Value = (CraftList.Source)i, Loc("Picker_Recent"), Loc("Picker_ThisSave"), Loc("Picker_AllSaves"), Loc("Picker_Stock"));
 
         // Only the rows in view exist. They move and change as the list scrolls, so however many craft
         // there are, the list opens and filters without making hundreds of UI objects.
         scroll = DebugUI.ScrollView(page, 100);
 
-        refresh.Add(() =>
+        Bind(() =>
         {
             if (!picker.gameObject.activeSelf)
                 return;
@@ -688,11 +592,7 @@ public class SpawnScreen : MonoBehaviour
                 Controller.Select(craft);
             ShowPicker(false);
         });
-        RectTransform rect = (RectTransform)row.transform;
-        rect.anchorMin = new Vector2(0, 1);
-        rect.anchorMax = Vector2.one;
-        rect.pivot = new Vector2(0.5f, 1);
-        rect.sizeDelta = new Vector2(0, rowHeight - 2);
+        DebugUI.Top((RectTransform)row.transform).sizeDelta = new Vector2(0, rowHeight - 2);
 
         // The row's own colour says what it holds, and is set with the rest of it when it's filled.
         // The button only tints that for the mouse, which doesn't change as rows are reused while scrolling.
