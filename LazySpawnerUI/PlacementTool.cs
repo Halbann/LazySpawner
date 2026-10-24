@@ -144,8 +144,8 @@ public class PlacementTool : MonoBehaviour
     {
         // Turn with the editor's keys, the same way: 90° a press, or 5° with its fine tweak key.
         float step = Fine ? 5 : 90;
-        bool Pressed(KeyBinding key) => key.GetKeyDown(true);
-        float roll = Pressed(GameSettings.Editor_rollLeft) ? step : Pressed(GameSettings.Editor_rollRight) ? -step : 0;
+        float Turn(KeyBinding one, KeyBinding other) => one.GetKeyDown(true) ? step : other.GetKeyDown(true) ? -step : 0;
+        float roll = Turn(GameSettings.Editor_rollLeft, GameSettings.Editor_rollRight);
 
         if (kind == Kind.Orbit)
         {
@@ -157,10 +157,10 @@ public class PlacementTool : MonoBehaviour
         else
         {
             // Around fixed axes, as in the editor: the camera's up, its right, and prograde.
-            float pitch = Pressed(GameSettings.Editor_pitchUp) ? -step : Pressed(GameSettings.Editor_pitchDown) ? step : 0;
-            float yaw = Pressed(GameSettings.Editor_yawLeft) ? step : Pressed(GameSettings.Editor_yawRight) ? -step : 0;
+            float pitch = Turn(GameSettings.Editor_pitchDown, GameSettings.Editor_pitchUp);
+            float yaw = Turn(GameSettings.Editor_yawLeft, GameSettings.Editor_yawRight);
             spaceTurn = Quaternion.AngleAxis(roll, Vector3.up) * Quaternion.AngleAxis(pitch, Vector3.right) * Quaternion.AngleAxis(yaw, Vector3.forward) * spaceTurn;
-            if (Pressed(GameSettings.Editor_resetRotation))
+            if (GameSettings.Editor_resetRotation.GetKeyDown(true))
                 spaceTurn = Quaternion.identity;
         }
 
@@ -247,8 +247,7 @@ public class PlacementTool : MonoBehaviour
 
         placeValid = slope < 30 && clear;
         placeInfo = $"{Named(template)} · {HeadingText}{InTheAir}" +
-            (slope >= 30 ? $"\n{red}{Loc("Placing_TooSteep", slope.ToString("F0"))}</color>" : "") +
-            (!clear ? $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>" : "");
+            (slope >= 30 ? Warning("Placing_TooSteep", slope.ToString("F0")) : "") + (!clear ? Warning("Placing_Touching", nearest.GetDisplayName()) : "");
         return placed;
     }
 
@@ -280,7 +279,7 @@ public class PlacementTool : MonoBehaviour
         float gap = Clearance(template, placed, out Vessel nearest);
 
         placeValid = gap >= 1f;
-        placeInfo = Named(template) + (placeValid ? "" : $"\n{red}{Loc("Placing_Touching", nearest.GetDisplayName())}</color>");
+        placeInfo = Named(template) + (placeValid ? "" : Warning("Placing_Touching", nearest.GetDisplayName()));
         return placed;
     }
 
@@ -360,7 +359,7 @@ public class PlacementTool : MonoBehaviour
         bool inAtmosphere = body.atmosphere && altitude < body.atmosphereDepth;
         placeValid = true;
         placeInfo = $"{Named(template)} · {name} · {Loc("Placing_Altitude", Distance(altitude))} · {Loc("Placing_Inclination", orbit.inclination.ToString("F1"))}" +
-            (inAtmosphere ? $"\n{red}{Loc("Placing_InAtmosphere")}</color>" : "");
+            (inAtmosphere ? Warning("Placing_InAtmosphere") : "");
 
         // Together where you click. Spreading them around the orbit is for the Orbit mode.
         return Cluster(orbit, template);
@@ -462,7 +461,8 @@ public class PlacementTool : MonoBehaviour
     // Random headings are picked on spawning, so the ghost doesn't spin about.
     private string HeadingText => Controller.randomRotation ? Loc("Placing_RandomHeading") : Loc("Placing_Heading", placeHeading.ToString("F0"));
 
-    private const string red = "<color=#ff7766>";
+    // On a line of its own, under what's being placed.
+    private static string Warning(string key, params object[] args) => $"\n<color=#ff7766>{Loc(key, args)}</color>";
 
     private static bool MouseOverUI() =>
         EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
