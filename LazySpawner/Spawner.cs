@@ -378,12 +378,38 @@ public static class Spawner
             // These don't need it: the ground was there to measure, or they're flying. Stock waits 5 for vessels built on EVA.
             if (measured || airborne)
                 protoVessel.vesselRef.SetPhysicsHoldExpiryOverride();
+            DarkenLightsOnLoad(protoVessel.vesselRef);
             GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef);
         }
 
         // The space centre's markers for vessels landed there are only made afresh when one goes.
         if (KSCVesselMarkers.fetch != null)
             KSCVesselMarkers.fetch.RefreshMarkers();
+    }
+
+    // Parts are made with their lights lit, and lights that are off are only dimmed once their parts have started, after the
+    // first frame has been drawn. Darken them before then, for a vessel that loads where it can be seen.
+    private static void DarkenLightsOnLoad(Vessel vessel)
+    {
+        Vessel active = FlightGlobals.ActiveVessel;
+        if (!HighLogic.LoadedSceneIsFlight || active == null
+            || Vector3.Distance(vessel.transform.position, active.transform.position) > vessel.vesselRanges.GetSituationRanges(vessel.situation).load)
+            return;
+
+        EventData<Vessel>.OnEvent onLoaded = null;
+        onLoaded = loaded =>
+        {
+            if (loaded != vessel)
+                return;
+
+            GameEvents.onVesselLoaded.Remove(onLoaded);
+            foreach (Part part in vessel.parts)
+                foreach (ModuleLight module in part.FindModulesImplementing<ModuleLight>())
+                    if (!module.isOn)
+                        foreach (Light light in part.FindModelComponents<Light>(module.lightName))
+                            light.intensity = 0;
+        };
+        GameEvents.onVesselLoaded.Add(onLoaded);
     }
 
     // Relative to the root part, as KSP works it out from the parts' rigidbodies once they're loaded. Physicsless
