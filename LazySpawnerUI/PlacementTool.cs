@@ -476,7 +476,7 @@ public class PlacementTool : MonoBehaviour
     private static int Number => Controller.count.Valid ? Controller.count.value : 1;
 
     private static bool Ctrl => Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-    private static bool Alt => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.AltGr);
+    private static bool Alt => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
     private static bool Fine => GameSettings.Editor_fineTweak.GetKey(true);
     private bool Speed => Input.GetKey(KeyCode.S) && kind == Kind.Landed && placeAltitude > 0;
 
