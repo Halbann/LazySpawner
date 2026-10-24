@@ -49,6 +49,7 @@ public class PlacementTool : MonoBehaviour
     private bool placeValid;
     private string placeInfo;
     private float placeHeading = 90;
+    private bool showing;
     private float placeAltitude;
     // The airspeed setting, capped for the height.
     private float placeAirspeed;
@@ -109,7 +110,7 @@ public class PlacementTool : MonoBehaviour
         try
         {
             VesselTemplate template = gui.IsOpen ? gui.Template(out _) : null;
-            if (template == null)
+            if (template == null && Placing)
                 Stop();
 
             bool map = MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION;
@@ -117,6 +118,11 @@ public class PlacementTool : MonoBehaviour
                 : Placing ? UpdatePlacing(template, map)
                 : map && Controller.situationMode == Controller.SituationMode.Orbit ? gui.PreviewSituations(template)
                 : null;
+
+            // With nothing to show, once it's all hidden, there's nothing to do until there is.
+            if (shown == null && !showing)
+                return;
+            showing = shown != null;
 
             markers.Clear();
             if (map && shown != null)
