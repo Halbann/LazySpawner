@@ -236,7 +236,15 @@ public class SpawnScreen : MonoBehaviour
         LayoutElement aboutLayout = about.gameObject.AddComponent<LayoutElement>();
         aboutLayout.flexibleWidth = 1;
         aboutLayout.minWidth = DebugUI.ControlWidth;
-        Text(DebugUI.Paragraph(about), CraftDescription);
+        // At once for a different craft, and otherwise twice a second, for its age and part count.
+        (object craft, string text, float until) description = default;
+        Text(DebugUI.Paragraph(about), () =>
+        {
+            object craft = Controller.InEditor ? EditorLogic.fetch.ship : Controller.source == Controller.Source.Clone ? Controller.CloneSource() : Controller.SelectedCraft;
+            if (craft != description.craft || Time.unscaledTime > description.until)
+                description = (craft, CraftDescription(), Time.unscaledTime + 0.5f);
+            return description.text;
+        });
         Transform craftButtons = Show(DebugUI.Row(about), () => !Controller.InEditor);
         DebugUI.Button(craftButtons, Loc("Craft_Change"), () => ShowPicker(true), half);
         DebugUI.Tooltip(Show(DebugUI.Button(craftButtons, Loc("Craft_Edit"), () => Controller.OpenInEditor(Controller.SelectedCraft), half),
