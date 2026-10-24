@@ -283,7 +283,7 @@ internal static class DebugUI
 // A screen in the console, built from DebugUI's widgets, some of them bound to the game. UpdateBindings brings those up to date.
 internal abstract class ConsoleScreen : MonoBehaviour
 {
-    protected const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
+    internal const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
     private readonly List<Action> bindings = new List<Action>();
 
     protected void OnDisable() => InputLockManager.RemoveControlLock(DebugUI.TypingLock);

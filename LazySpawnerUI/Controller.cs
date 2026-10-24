@@ -71,8 +71,8 @@ public class Controller : MonoBehaviour
 
     // Result.
     internal readonly List<ProtoVessel> lastSpawned = new List<ProtoVessel>();
+    // What happened. Errors are in orange.
     internal string status = "";
-    internal bool statusIsError;
     internal Coroutine spawnRoutine;
 
     internal PlacementTool placementTool;
@@ -216,7 +216,6 @@ public class Controller : MonoBehaviour
 
         Select(craft);
         Instance.status = Loc("Status_Clipboard", craft.DisplayName);
-        Instance.statusIsError = false;
         return true;
     }
 
@@ -278,7 +277,6 @@ public class Controller : MonoBehaviour
     private IEnumerator SpawnRoutine(List<SpawnSituation> situations)
     {
         status = "";
-        statusIsError = false;
         lastSpawned.Clear();
 
         if (source == Source.Craft && !InEditor)
@@ -329,7 +327,6 @@ public class Controller : MonoBehaviour
             status = spawned == 1
                 ? Loc("Status_SpawnedOne", template.DisplayName)
                 : Loc("Status_Spawned", spawned, template.DisplayName, timer.Elapsed.TotalSeconds.ToString("N1"));
-            statusIsError = false;
             ScreenMessages.PostScreenMessage(status, 3f, ScreenMessageStyle.UPPER_CENTER);
         }
 
@@ -340,7 +337,6 @@ public class Controller : MonoBehaviour
     {
         int removed = lastSpawned.RemoveAll(Spawner.Remove);
         status = Loc("Status_Removed", removed);
-        statusIsError = false;
     }
 
     // The craft being edited as it is now, saved or not, the vessel to clone, or the craft picked. Null if
@@ -356,8 +352,7 @@ public class Controller : MonoBehaviour
 
     private void ShowError(Exception e)
     {
-        status = ShortMessage(e);
-        statusIsError = true;
+        status = ConsoleScreen.orange + ShortMessage(e);
         Popup(e, Loc("Error_Title"));
     }
 
