@@ -59,7 +59,9 @@ public class PlacementTool : MonoBehaviour
     private float rightClickTime;
     private GUIStyle hintStyle;
     private (int, bool, bool, bool, bool, bool, bool, float, float) hintKey;
-    private string hintControls;
+    private string hintControls, hintInfo;
+    private GUIContent hintContent;
+    private Vector2 hintSize;
 
     #region Lifecycle
 
@@ -701,7 +703,8 @@ public class PlacementTool : MonoBehaviour
 
         // Made afresh only when something it shows changes, rather than every frame.
         var key = ((int)kind, Ctrl, Alt, Fine, Speed, Controller.randomRotation.Value, placeAltitude > 0, Step(placeAltitude, 1), Step(placeAirspeed, 1));
-        if (!key.Equals(hintKey) || hintControls == null)
+        bool controlsChanged = !key.Equals(hintKey) || hintControls == null;
+        if (controlsChanged)
         {
             hintKey = key;
             string roll = Key(GameSettings.Editor_rollLeft) + "/" + Key(GameSettings.Editor_rollRight);
@@ -721,8 +724,16 @@ public class PlacementTool : MonoBehaviour
                     string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
         }
 
-        GUIContent content = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + hintControls + "</color>");
-        Vector2 size = hintStyle.CalcSize(content);
+        // Measuring rich text isn't cheap, and it's usually what it was last frame.
+        if (hintContent == null || placeInfo != hintInfo || controlsChanged)
+        {
+            hintInfo = placeInfo;
+            hintContent = new GUIContent((placeInfo ?? "") + "\n<color=#aaaaaa>" + hintControls + "</color>");
+            hintSize = hintStyle.CalcSize(hintContent);
+        }
+
+        GUIContent content = hintContent;
+        Vector2 size = hintSize;
         Vector2 mouse = Event.current.mousePosition;
         Rect rect = new Rect(mouse.x + 20, mouse.y + 20, size.x, size.y);
 
