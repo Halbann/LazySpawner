@@ -233,9 +233,7 @@ internal class CraftParser
         node.AddValue("sidx", Get("sidx", "-1"));
 
         // The game's defaults for these are the same as the editor's.
-        foreach (string copied in new[] { "symMethod", "resPri", "dstg", "sepI", "attm", "sameVesselCollision", "autostrutMode", "rigidAttachment", "modCost", "cData" })
-            if (craft.GetValue(copied) is string value)
-                node.AddValue(copied, value);
+        Copy(craft, node, "symMethod", "resPri", "dstg", "sepI", "attm", "sameVesselCollision", "autostrutMode", "rigidAttachment", "modCost", "cData");
 
         foreach (uint symID in CraftIDs(info, "sym"))
             if (partsByCraftID.TryGetValue(symID, out PartInfo counterpart))
@@ -311,6 +309,14 @@ internal class CraftParser
 
     #region Vessel
 
+    // The values a craft file and a save have in the same format, where the craft has them.
+    private static void Copy(ConfigNode from, ConfigNode to, params string[] names)
+    {
+        foreach (string name in names)
+            if (from.GetValue(name) is string value)
+                to.AddValue(name, value);
+    }
+
     private static void AddVesselValues(ConfigNode craftNode, ConfigNode vesselNode, string name, VesselType vesselType, int stage)
     {
         double UT = Planetarium.GetUniversalTime();
@@ -322,9 +328,7 @@ internal class CraftParser
         vesselNode.AddValue("stg", stage);
         vesselNode.AddValue("ctrl", true);
 
-        foreach (string copied in new[] { "OverrideDefault", "OverrideActionControl", "OverrideAxisControl", "OverrideGroupNames" })
-            if (craftNode.GetValue(copied) is string value)
-                vesselNode.AddValue(copied, value);
+        Copy(craftNode, vesselNode, "OverrideDefault", "OverrideActionControl", "OverrideAxisControl", "OverrideGroupNames");
 
         // It can be empty, but the game saves it without checking it's there.
         vesselNode.AddNode("ACTIONGROUPS");
