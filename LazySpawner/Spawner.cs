@@ -64,9 +64,10 @@ public static class Spawner
         UpdateRoboticsReferences(node, changedPIDs);
 
         // Rovers and planes shouldn't roll away as soon as they touch the ground.
-        if (situation.landed && !situation.Airborne)
+        if (situation.landed && !situation.Airborne && !OnWater(situation))
             SetBrakes(node);
-        // Launch clamps count as touching the ground, which makes the whole vessel "landed", even in orbit.
+        // Launch clamps count as touching the ground, which makes the whole vessel "landed", even in orbit. On water,
+        // they'd reach down to the seabed.
         else
             RemoveLaunchClamps(node);
 
@@ -379,8 +380,8 @@ public static class Spawner
             // These don't need it: the ground was there to measure, or they're flying. Stock waits 5 for vessels built on EVA.
             if (measured || airborne)
                 vessel.SetPhysicsHoldExpiryOverride();
-            if (measured && landed && !airborne && !splashed)
-                Once(GameEvents.onVesselGoOffRails, vessel, () => SettleOnGround(vessel));
+            if ((measured || splashed) && landed && !airborne)
+                Once(GameEvents.onVesselGoOffRails, vessel, () => SettleOnGround(vessel, splashed));
             Once(GameEvents.onVesselLoaded, vessel, () => DarkenLights(vessel));
             GameEvents.onNewVesselCreated.Fire(vessel);
         }
@@ -420,24 +421,35 @@ public static class Spawner
     // Between the ground and a vessel's lowest point, so it doesn't start touching it.
     private const float groundGap = 0.05f;
 
-    // Stand the vessel on the ground under it by its lowest collider, as stock measures it. Its parts are as the craft saved them by
-    // now, unlike the part models the template measures, which can have a ramp or a bay door open. Moving it is still fine as long
-    // as physics hasn't stepped yet.
-    private static void SettleOnGround(Vessel vessel)
+    // Stand the vessel on the ground under it, or the sea, by its lowest collider, as stock measures it. Its parts are as the craft
+    // saved them by now, unlike the part models the template measures, which can have a ramp or a bay door open. Moving it is still
+    // fine as long as physics hasn't stepped yet.
+    private static void SettleOnGround(Vessel vessel, bool onWater)
     {
-        if (vessel.GetHeightFromTerrain(overRidePacked: true) < 0)
+        Vector3 up = FlightGlobals.getUpAxis(vessel.mainBody, vessel.transform.position);
+        float height;
+        // The sea has no collider, but it's flat.
+        if (onWater)
+        {
+            height = (float)vessel.mainBody.GetAltitude(vessel.transform.position);
+            vessel.groundCollisionHit = new RaycastHit { normal = up };
+        }
+        else if (vessel.GetHeightFromTerrain(overRidePacked: true) >= 0)
+        {
+            height = vessel.heightFromTerrain;
+            vessel.groundCollisionHit = vessel.heightFromTerrainHit;
+        }
+        else
             return;
 
-        vessel.groundCollisionHit = vessel.heightFromTerrainHit;
-        Vector3 up = FlightGlobals.getUpAxis(vessel.mainBody, vessel.transform.position);
         // Infinite when it found no collider to measure, as stock checks too.
         float lowest = Mathf.Abs(vessel.getLowestPoint()) * Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
         if (float.IsInfinity(lowest) || float.IsNaN(lowest))
             return;
 
-        float lift = lowest + groundGap - vessel.heightFromTerrain;
+        float lift = lowest + groundGap - height;
         vessel.Translate(up * lift);
-        Logger.Log($"Settled {vessel.GetDisplayName()} on the ground, {(lift < 0 ? "down" : "up")} {Math.Abs(lift):F2} m.");
+        Logger.Log($"Settled {vessel.GetDisplayName()} on the {(onWater ? "water" : "ground")}, {(lift < 0 ? "down" : "up")} {Math.Abs(lift):F2} m.");
     }
 
     // Relative to the root part, as KSP works it out from the parts' rigidbodies once they're loaded. Physicsless
@@ -460,11 +472,16 @@ public static class Spawner
     // and rotation. The part it's controlled from isn't known until the crew are aboard, so this is a
     // good guess rather than a promise. For previews, and for keeping vessels clear of each other.
     public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation) =>
-        Pose(template, situation, out _);
+        Pose(template, situation, out _, out _);
 
-    // On the surface, also how high the root part is over the ground, or the sea.
-    public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation, out double height) =>
-        GetPose(template, situation, template.ReferenceRotation, out height, out _, out _);
+    // On the surface, also how high the root part is over the ground, or the sea, and whether it'll be floating on it.
+    public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation, out double height, out bool splashed) =>
+        GetPose(template, situation, template.ReferenceRotation, out height, out splashed, out _);
+
+    // On the sea rather than the ground under it, and not in the air over it.
+    private static bool OnWater(SpawnSituation situation) =>
+        situation.landed && !situation.Airborne && situation.body.ocean
+        && SurfaceAltitude(situation.body, situation.latitude, situation.longitude, situation.groundSearchAltitude, out _) < 0;
 
     private static (Vector3d, Quaternion) GetPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative, out double height, out bool splashed, out bool measured)
     {
@@ -487,7 +504,7 @@ public static class Spawner
         Quaternion rotation = situation.rotation * toRoot ?? FaceHeading(frame * template.UprightRotation, referenceRelative, frame);
 
         // Lift the vessel so its lowest part clears the ground.
-        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation) + groundGap + Math.Max(situation.radarAltitude, 0);
+        height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation, launchClamps: !water && !situation.Airborne) + groundGap + Math.Max(situation.radarAltitude, 0);
         double altitude = (water ? 0 : terrain) + height;
 
         return (body.GetWorldSurfacePosition(situation.latitude, situation.longitude, altitude), rotation);

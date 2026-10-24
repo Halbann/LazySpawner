@@ -223,7 +223,10 @@ public class PlacementTool : MonoBehaviour
             || active.situation is not (Vessel.Situations.ORBITING or Vessel.Situations.ESCAPING) && active.radarAltitude <= 2000;
         bool collider = Physics.Raycast(ray, out RaycastHit hit, ghostRange, 1 << 15, QueryTriggerInteraction.Ignore);
         double distance = 0;
-        if (!collider && !(nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
+        // The sea has no collider, so the mouse would find the seabed under it instead.
+        bool sea = body.ocean && RaySphere(ray.origin - body.position, ray.direction, body.Radius, out distance, out _) && distance > 0 && distance < (collider ? hit.distance : ghostRange);
+        collider &= !sea;
+        if (!collider && !(sea || nearGround && Ground(body, ray.origin, ray.direction, ghostRange, 20, out distance)))
         {
             if (!nearGround)
                 return null;
@@ -246,7 +249,7 @@ public class PlacementTool : MonoBehaviour
         bool clear = gap >= 0.5f;
 
         placeValid = slope < 30 && clear;
-        placeInfo = $"{Named(template)} · {HeadingText}{InTheAir}" +
+        placeInfo = $"{Named(template)}{(sea ? " · " + Loc("Placing_OnWater") : "")} · {HeadingText}{InTheAir}" +
             (slope >= 30 ? Warning("Placing_TooSteep", slope.ToString("F0")) : "") + (!clear ? Warning("Placing_Touching", nearest.GetDisplayName()) : "");
         return placed;
     }
@@ -526,7 +529,7 @@ public class PlacementTool : MonoBehaviour
                 if (situation.landed && situation.body != FlightGlobals.currentMainBody)
                     continue;
 
-                (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation, out double height);
+                (Vector3d position, Quaternion rotation) = Spawner.Pose(template, situation, out double height, out bool splashed);
                 float distance = ((Vector3)position - camera).magnitude;
                 if (distance > ghostRange)
                     continue;
@@ -536,7 +539,7 @@ public class PlacementTool : MonoBehaviour
 
                 Ghost ghost = ghosts[used++];
                 ghost.gameObject.transform.SetPositionAndRotation(position, rotation);
-                ghost.ShowLaunchClamps(situation.landed && !situation.Airborne);
+                ghost.ShowLaunchClamps(situation.landed && !situation.Airborne && !splashed);
 
                 // Under the middle of the vessel, not its root part.
                 if (situation.Airborne)
@@ -544,7 +547,7 @@ public class PlacementTool : MonoBehaviour
                     Vector3 up = situation.body.GetSurfaceNVector(situation.latitude, situation.longitude);
                     Vector3 middle = rotation * template.SpaceBounds.center;
                     Vector3 ground = (Vector3)position + middle - up * (float)(height + Vector3.Dot(middle, up));
-                    ghost.ShowDrop(true, ground, up, situation.radarAltitude + 0.5f, Mathf.Max(0.05f, distance * 0.002f));
+                    ghost.ShowDrop(true, ground, up, situation.radarAltitude + 0.05f, Mathf.Max(0.05f, distance * 0.002f));
                 }
                 else
                     ghost.ShowDrop(false);

@@ -12,7 +12,7 @@ public class SpawnSituation
     // Orbit.
     public Orbit orbit;
 
-    // Landed. The spawner finds the ground, and lifts the vessel so it stands on it.
+    // Landed. The spawner finds the ground, and lifts the vessel so it stands on it. Over the sea, it floats on it instead.
     public double latitude;
     public double longitude;
     public float heading; // Degrees clockwise from north, for the vessel's nose.
