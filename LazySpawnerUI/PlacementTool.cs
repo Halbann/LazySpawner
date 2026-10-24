@@ -58,7 +58,7 @@ public class PlacementTool : MonoBehaviour
     private Vector3 rightClickStart;
     private float rightClickTime;
     private GUIStyle hintStyle;
-    private (int, bool, bool, bool, bool, bool, bool, float, float) hintKey;
+    private (int, bool, bool, bool, bool, bool, bool, bool, float, float) hintKey;
     private string hintControls, hintInfo;
     private GUIContent hintContent;
     private Vector2 hintSize;
@@ -80,8 +80,8 @@ public class PlacementTool : MonoBehaviour
                 Destroy(line.gameObject);
     }
 
-    // Keep the camera, lose everything that would react to the clicks and keys.
-    private const ControlTypes locks = ControlTypes.ALL_SHIP_CONTROLS | ControlTypes.PAUSE | ControlTypes.MAP_UI | ControlTypes.TARGETING;
+    // Keep the camera, lose everything that would react to the clicks and keys, its modes too, for V.
+    private const ControlTypes locks = ControlTypes.ALL_SHIP_CONTROLS | ControlTypes.CAMERAMODES | ControlTypes.PAUSE | ControlTypes.MAP_UI | ControlTypes.TARGETING;
 
     public void Begin()
     {
@@ -195,9 +195,9 @@ public class PlacementTool : MonoBehaviour
         // Spawn on click, unless the click was for some UI.
         if (Input.GetMouseButtonDown(0) && placeValid && !MouseOverUI())
         {
-            gui.Spawn(placed);
+            gui.Spawn(placed, Switching);
 
-            if (!Ctrl)
+            if (!Ctrl || Switching)
                 Finish();
         }
 
@@ -478,6 +478,7 @@ public class PlacementTool : MonoBehaviour
     private static bool Ctrl => Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
     private static bool Alt => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
     private static bool Fine => GameSettings.Editor_fineTweak.GetKey(true);
+    private static bool Switching => Input.GetKey(KeyCode.V);
     private bool Speed => Input.GetKey(KeyCode.S) && kind == Kind.Landed && placeAltitude > 0;
 
     // As many notches for each tenfold: 10 at a time up to 100, then 100 at a time up to 1000, and so on. An eighth of that with fine tweak.
@@ -696,7 +697,7 @@ public class PlacementTool : MonoBehaviour
         };
 
         // Made afresh only when something it shows changes, rather than every frame.
-        var key = ((int)kind, Ctrl, Alt, Fine, Speed, Controller.randomRotation.Value, placeAltitude > 0, Step(placeAltitude, 1), Step(placeAirspeed, 1));
+        var key = ((int)kind, Switching, Ctrl, Alt, Fine, Speed, Controller.randomRotation.Value, placeAltitude > 0, Step(placeAltitude, 1), Step(placeAirspeed, 1));
         bool controlsChanged = !key.Equals(hintKey) || hintControls == null;
         if (controlsChanged)
         {
@@ -743,11 +744,12 @@ public class PlacementTool : MonoBehaviour
             : kind == Kind.Space ? Loc("Placing_Rotate", all, Key(GameSettings.Editor_resetRotation))
             : Loc("Placing_Turn", roll);
 
-        return Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
+        return Switching ? Loc("Placing_SwitchClick")
+            : Ctrl ? Loc("Placing_CtrlClick") + " · " + Loc("Placing_CtrlScroll")
             : Alt && kind == Kind.Landed ? Fine ? Loc("Placing_HeightStep", Step(placeAltitude, 1).ToString("0.##")) : Loc("Placing_AltScroll", Key(GameSettings.Editor_fineTweak))
             : Speed ? Fine ? Loc("Placing_AirspeedStep", Step(placeAirspeed, 1).ToString("0.##")) : Loc("Placing_SpeedScroll", Key(GameSettings.Editor_fineTweak))
             : Fine && turns ? kind == Kind.Space ? Loc("Placing_RotateStep", all) : Loc("Placing_TurnStep", roll)
-            : string.Join(" · ", Loc("Placing_Spawn"), Loc("Placing_KeepPlacing"), Loc("Placing_Stop")) + "\n" +
+            : Loc("Placing_Spawn") + " · " + Loc("Placing_Stop") + "\n" +
                 string.Join(" · ", new[] { turning, kind == Kind.Landed ? Loc("Placing_Height") : null, kind == Kind.Landed && placeAltitude > 0 ? Loc("Placing_Airspeed") : null, Loc("Placing_Count") }.Where(s => s != null));
     }
 

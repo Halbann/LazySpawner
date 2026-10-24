@@ -229,7 +229,7 @@ internal class SpawnScreen : ConsoleScreen
         // What happened, with what can be done about it alongside.
         Transform result = DebugUI.Row(Show(DebugUI.Box(content), () => C.status != ""), 6);
         Text(DebugUI.Paragraph(result), () => C.status);
-        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => { if (HighLogic.LoadedSceneIsFlight) FlightGlobals.ForceSetActiveVessel(LastSpawned().vesselRef); else Controller.Fly(LastSpawned()); }, 80),
+        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => Controller.SwitchTo(LastSpawned()), 80),
             () => LastSpawned() != null && (!HighLogic.LoadedSceneIsFlight || LastSpawned().vesselRef != FlightGlobals.ActiveVessel));
         Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
         DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));

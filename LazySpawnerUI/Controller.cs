@@ -99,6 +99,14 @@ public class Controller : MonoBehaviour
         FlightDriver.StartAndFocusVessel("persistent", HighLogic.CurrentGame.flightState.protoVessels.IndexOf(spawned.vesselRef?.protoVessel ?? spawned));
     }
 
+    internal static void SwitchTo(ProtoVessel spawned)
+    {
+        if (HighLogic.LoadedSceneIsFlight)
+            FlightGlobals.ForceSetActiveVessel(spawned.vesselRef);
+        else
+            Fly(spawned);
+    }
+
     // Open a craft in its editor, saving the game first, as leaving flight does.
     internal static void OpenInEditor(Craft craft)
     {
@@ -256,8 +264,8 @@ public class Controller : MonoBehaviour
     #region Spawning
 
     // Spawn at the places picked, or where the screen says. Placed vessels face the default way while
-    // they're previewed, so they're turned at random last.
-    internal void Spawn(List<SpawnSituation> placed = null)
+    // they're previewed, so they're turned at random last. Switching goes to the one in the middle.
+    internal void Spawn(List<SpawnSituation> placed = null, bool switchTo = false)
     {
         if (spawnRoutine != null || Template(out _) == null)
             return;
@@ -271,10 +279,10 @@ public class Controller : MonoBehaviour
                     situation.rotation = Random.rotation;
             }
 
-        spawnRoutine = StartCoroutine(SpawnRoutine(placed));
+        spawnRoutine = StartCoroutine(SpawnRoutine(placed, switchTo));
     }
 
-    private IEnumerator SpawnRoutine(List<SpawnSituation> situations)
+    private IEnumerator SpawnRoutine(List<SpawnSituation> situations, bool switchTo)
     {
         status = "";
         lastSpawned.Clear();
@@ -328,6 +336,16 @@ public class Controller : MonoBehaviour
                 ? Loc("Status_SpawnedOne", template.DisplayName)
                 : Loc("Status_Spawned", spawned, template.DisplayName, timer.Elapsed.TotalSeconds.ToString("N1"));
             ScreenMessages.PostScreenMessage(status, 3f, ScreenMessageStyle.UPPER_CENTER);
+        }
+
+        // A row's middle is halfway along it; a cluster's is its first. In load range, it loads within a few frames,
+        // and switching to it before then goes through a loading screen.
+        if (switchTo && spawned > 0)
+        {
+            ProtoVessel target = lastSpawned[situations[0].landed ? spawned / 2 : 0];
+            for (int i = 0; i < 30 && HighLogic.LoadedSceneIsFlight && target.vesselRef?.loaded == false; i++)
+                yield return null;
+            SwitchTo(target);
         }
 
         spawnRoutine = null;
