@@ -417,7 +417,7 @@ public static class Spawner
             return (situation.orbit.getPositionAtUT(UT), (situation.rotation ?? Placement.Prograde(situation.orbit, UT)) * toRoot);
         }
 
-        double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude);
+        double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude, situation.groundSearchAltitude);
         bool water = body.ocean && terrain < 0;
         splashed = water && !situation.Airborne;
 
@@ -434,8 +434,8 @@ public static class Spawner
 
     // The height of whatever's there to stand on. The terrain height doesn't include things like
     // the runway and buildings, which are several metres higher at KSC, so when the scenery is
-    // loaded, ask it instead.
-    private static double SurfaceAltitude(CelestialBody body, double latitude, double longitude)
+    // loaded, ask it instead, looking down from the search altitude.
+    private static double SurfaceAltitude(CelestialBody body, double latitude, double longitude, double? searchAltitude)
     {
         if (body.pqsController == null)
             return 0;
@@ -444,11 +444,12 @@ public static class Spawner
 
         if ((HighLogic.LoadedSceneIsFlight || HighLogic.LoadedScene == GameScenes.SPACECENTER) && body == FlightGlobals.currentMainBody)
         {
-            const float height = 3000;
+            const float range = 3000;
+            double from = searchAltitude ?? Math.Max(terrain, 0) + range;
             Vector3d up = body.GetSurfaceNVector(latitude, longitude);
-            Vector3d origin = body.GetWorldSurfacePosition(latitude, longitude, Math.Max(terrain, 0) + height);
+            Vector3d origin = body.GetWorldSurfacePosition(latitude, longitude, from);
 
-            if (Physics.Raycast(origin, -up, out RaycastHit hit, height * 2, 1 << 15, QueryTriggerInteraction.Ignore))
+            if (Physics.Raycast(origin, -up, out RaycastHit hit, (float)(from - Math.Max(terrain, 0)) + range, 1 << 15, QueryTriggerInteraction.Ignore))
                 terrain = Math.Max(terrain, body.GetAltitude(hit.point));
         }
 

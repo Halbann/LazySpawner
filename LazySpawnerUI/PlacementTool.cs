@@ -224,9 +224,10 @@ public class PlacementTool : MonoBehaviour
             return new List<SpawnSituation>();
         }
 
-        body.GetLatLonAlt(collider ? hit.point : (Vector3d)ray.origin + (Vector3d)ray.direction * distance, out double latitude, out double longitude, out _);
+        body.GetLatLonAlt(collider ? hit.point : (Vector3d)ray.origin + (Vector3d)ray.direction * distance, out double latitude, out double longitude, out double altitude);
 
-        List<SpawnSituation> placed = Row(template, body, latitude, longitude);
+        // Just above what the mouse is on, so it isn't put on a roof over it.
+        List<SpawnSituation> placed = Row(template, body, latitude, longitude, altitude + 3);
 
         // Steep ground tips things over, and overlapping vessels explode. Only nearby ground says how steep it is.
         Vector3 up = body.GetSurfaceNVector(latitude, longitude);
@@ -467,12 +468,12 @@ public class PlacementTool : MonoBehaviour
 
     private string InTheAir => placeAltitude > 0 ? " · " + Loc("Placing_InTheAir", Distance(placeAltitude), Airspeed.ToString("F0")) : "";
 
-    private List<SpawnSituation> Row(VesselTemplate template, CelestialBody body, double latitude, double longitude)
+    private List<SpawnSituation> Row(VesselTemplate template, CelestialBody body, double latitude, double longitude, double? groundSearchAltitude = null)
     {
         SpawnSituation at = SpawnSituation.Landed(body, latitude, longitude, placeHeading, placeAltitude);
         (Vector3d position, Quaternion rotation) = Spawner.Pose(template, at);
         body.GetLatLonAlt(position - (Vector3d)(rotation * template.BoundsFor(!at.Airborne).center), out latitude, out longitude, out _);
-        return Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, Airspeed);
+        return Formations.LandedRow(template, body, latitude, longitude, placeHeading, Number, Controller.randomRotation, placeAltitude, Airspeed, groundSearchAltitude);
     }
 
     // What's being placed, and how many.

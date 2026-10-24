@@ -16,6 +16,8 @@ public class SpawnSituation
     public double latitude;
     public double longitude;
     public float heading; // Degrees clockwise from north, for the vessel's nose.
+    // The altitude it looks down for the ground from, so it can be under a roof or a bridge. By default, 3 km above the terrain.
+    public double? groundSearchAltitude;
 
     // In the air: metres between the vessel's lowest point and the ground, and how fast it flies along its nose.
     // It stays put until it's near enough to the active vessel for physics, then flies off with its engines running.
@@ -34,7 +36,7 @@ public class SpawnSituation
         rotation = rotation,
     };
 
-    public static SpawnSituation Landed(CelestialBody body, double latitude, double longitude, float heading, float radarAltitude = 0, float airspeed = 0) => new SpawnSituation
+    public static SpawnSituation Landed(CelestialBody body, double latitude, double longitude, float heading, float radarAltitude = 0, float airspeed = 0, double? groundSearchAltitude = null) => new SpawnSituation
     {
         body = body,
         landed = true,
@@ -43,6 +45,7 @@ public class SpawnSituation
         heading = heading,
         radarAltitude = radarAltitude,
         airspeed = airspeed,
+        groundSearchAltitude = groundSearchAltitude,
     };
 }
 
