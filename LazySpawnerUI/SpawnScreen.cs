@@ -80,8 +80,12 @@ public class SpawnScreen : MonoBehaviour
     {
         // Otherwise typing "1" fires action group 1, and a space stages.
         GameObject selected = EventSystem.current?.currentSelectedGameObject;
+        // Setting a lock tells every mod listening, so only when it isn't set yet.
         if (selected != null && selected.transform.IsChildOf(transform) && selected.GetComponent<TMP_InputField>()?.isFocused == true)
-            InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLock);
+        {
+            if (InputLockManager.GetControlLock(typingLock) == ControlTypes.None)
+                InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, typingLock);
+        }
         else
             InputLockManager.RemoveControlLock(typingLock);
 
