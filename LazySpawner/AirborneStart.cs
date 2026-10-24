@@ -15,6 +15,11 @@ public class AirborneStart : VesselModule
     [KSPField(isPersistant = true)]
     public float airspeed;
 
+    // Taking the whole air load at once, the joints overshoot it and the weakest snap, wing roots first. So they
+    // can't break for a while, starting in the first physics step after the parts unpack, which is when they would.
+    public static int settlingSteps = 400;
+    private int settling;
+
     // Null for a vessel that isn't spawned in the air, which a clone of one waiting would otherwise be.
     internal static void Set(ProtoVessel protoVessel, float? airspeed)
     {
@@ -63,5 +68,18 @@ public class AirborneStart : VesselModule
             engine.Activate();
 
         Logger.Log($"{vessel.GetDisplayName()} took off at {airspeed:F0} m/s with {engines.Count(e => e.part.inverseStage == first)} engines.");
+        settling = settlingSteps;
+    }
+
+    // Then back to however they unpacked, as stock does it.
+    protected void FixedUpdate()
+    {
+        if (settling == 0)
+            return;
+
+        bool unbreakable = --settling > 0 || CheatOptions.UnbreakableJoints;
+        foreach (Part part in vessel.parts)
+            if (part.attachJoint != null)
+                part.attachJoint.SetUnbreakable(unbreakable, part.rigidAttachment);
     }
 }
