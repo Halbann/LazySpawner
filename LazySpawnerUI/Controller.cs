@@ -113,6 +113,7 @@ public class Controller : MonoBehaviour
     // Open a craft in its editor, saving the game first, as leaving flight does.
     internal static void OpenInEditor(Craft craft)
     {
+        DebugUI.Hide();
         GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
         EditorDriver.StartAndLoadVessel(craft.path, craft.Editor);
     }
