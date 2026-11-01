@@ -25,5 +25,5 @@ internal class Kept<TKey, T>
         return kept.value;
     }
 
-    public void Forget() => kept.made = false;
+    public void Forget() => kept = default;
 }

@@ -484,6 +484,8 @@ public class Controller : MonoBehaviour
     // The map draws them every frame. Their orbits carry on from when they were made, so making them a few times a second is plenty.
     internal List<SpawnSituation> PreviewSituations(VesselTemplate template) => previews.Get((template, situationMode.Value));
 
+    internal static void ForgetPreviews() => previews.Forget();
+
     private static readonly Kept<(VesselTemplate, SituationMode), List<SpawnSituation>> previews = new Kept<(VesselTemplate, SituationMode), List<SpawnSituation>>(key =>
     {
         try

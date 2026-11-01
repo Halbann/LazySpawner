@@ -124,6 +124,8 @@ public class PlacementTool : MonoBehaviour
             // With nothing to show, once it's all hidden, there's nothing to do until there is.
             if (shown == null && !showing)
                 return;
+            if (shown == null)
+                Controller.ForgetPreviews();
             showing = shown != null;
 
             markers.Clear();
