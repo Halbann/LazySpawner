@@ -26,6 +26,10 @@
 - Added expansion craft to the Stock tab.
 - Fixed cloning a loaded vessel showing an out-of-date part count.
 
+### Save Vessel
+
+- Fixed saved craft keeping their engines running at the throttle they had, which took effect when they were launched or spawned.
+
 ### Other
 
 - Changed the default shortcut to Alt+F11 from Alt+F.

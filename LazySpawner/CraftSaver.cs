@@ -11,6 +11,7 @@ namespace LazySpawner;
 // - How the craft sat in the editor. The control point goes back to looking up in the VAB, or forwards in the SPH.
 // - Rotations from the rotate tool. A part that had one turns back to its default when picked up in the editor.
 // - Rotors' torque limits, which every flight starts at 0. They go back to the default, 100%.
+// - Engines are off, as in the editor, so a craft doesn't start with them running at the throttle they had.
 public static class CraftSaver
 {
     // The building a vessel was launched from, or else the likelier one for what it is.
@@ -80,6 +81,15 @@ public static class CraftSaver
                 node.values.Remove(link);
 
             foreach (ConfigNode module in node.GetNodes("MODULE"))
+            {
+                // Engines start as the editor has them, off, not running at the throttle they had.
+                if (module.HasValue("EngineIgnited"))
+                {
+                    foreach (string field in new[] { "EngineIgnited", "flameout", "engineShutdown", "staged" })
+                        module.SetValue(field, false);
+                    module.SetValue("currentThrottle", 0f);
+                }
+
                 switch (module.GetValue("name"))
                 {
                     // Docked ports join like ports put together in the editor. The vessels they were are forgotten.
@@ -92,6 +102,7 @@ public static class CraftSaver
                         module.SetValue("servoMotorLimit", 100);
                         break;
                 }
+            }
         }
 
         return craft;
