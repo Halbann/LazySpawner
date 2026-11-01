@@ -13,6 +13,7 @@
 - Fixed vessels spawning with no physics for several seconds.
 - Fixed vessels spawning on top of a structure rather when trying to spawn inside.
 - Fixed planes and other vessels on landing gear popping up and bouncing when spawned on the ground.
+- Fixed rovers, and craft saved with their landing gear retracted, popping up or falling when spawned on the ground. Their ghosts now stand on their wheels too.
 - Fixed placement appearing at floor level when the mouse is on a building's roof.
 - Fixed vessels spawning too high, and ghosts showing animated parts in the wrong pose.
 

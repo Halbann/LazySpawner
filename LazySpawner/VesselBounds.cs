@@ -64,7 +64,7 @@ public static class VesselBounds
         Dictionary<string, bool> variant = Variant(prefab, part.variant);
 
         foreach (Collider collider in root.GetComponentsInChildren<Collider>(true))
-            if (collider.enabled && !collider.isTrigger && Shown(collider.transform, root, variant))
+            if ((collider.enabled || collider is WheelCollider) && !collider.isTrigger && !(part.gearUp && collider is WheelCollider) && Shown(collider.transform, root, variant))
                 points.AddRange(Corners(collider, partToVessel * worldToPrefab * collider.transform.localToWorldMatrix));
 
         if (holder != null)
@@ -103,7 +103,7 @@ public static class VesselBounds
             BoxCollider box => new Bounds(box.center, box.size),
             SphereCollider sphere => new Bounds(sphere.center, Vector3.one * sphere.radius * 2),
             CapsuleCollider capsule => new Bounds(capsule.center, Vector3.one * capsule.radius * 2 + new Vector3 { [capsule.direction] = Mathf.Max(0, capsule.height - capsule.radius * 2) }),
-            WheelCollider wheel => new Bounds(wheel.center, new Vector3(wheel.radius * 2, wheel.radius * 2 + wheel.suspensionDistance, wheel.radius * 2)),
+            WheelCollider wheel => new Bounds(wheel.center, Vector3.one * wheel.radius * 2),
             _ => null,
         };
 

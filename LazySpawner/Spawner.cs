@@ -428,9 +428,8 @@ public static class Spawner
     // The same for wheels, which stand on their tyres with the suspension drooped, so they hardly move after.
     private const float wheelGroundGap = 0.01f;
 
-    // Stand the vessel on the ground under it, or the sea, by its lowest collider, as stock measures it. Its parts are as the craft
-    // saved them by now, unlike the part models the template measures, which can have a ramp or a bay door open. Moving it is still
-    // fine as long as physics hasn't stepped yet.
+    // Lift the vessel out of the ground under it, or the sea, if its lowest collider is below where the template put it. Its parts are
+    // as the craft saved them by now, which the template can only estimate. Moving it is still fine as long as physics hasn't stepped yet.
     private static void SettleOnGround(Vessel vessel, bool onWater)
     {
         Vector3 up = FlightGlobals.getUpAxis(vessel.mainBody, vessel.transform.position);
@@ -449,33 +448,59 @@ public static class Spawner
         else
             return;
 
-        // Infinite when it found no collider to measure, as stock checks too.
-        float stockLowest = Mathf.Abs(vessel.getLowestPoint());
-        if (float.IsInfinity(stockLowest) || float.IsNaN(stockLowest))
+        float lowest = LowestPoint(vessel, out bool onWheel);
+        if (float.IsInfinity(lowest) || float.IsNaN(lowest))
             return;
 
-        float allowance = WheelAllowance(vessel, stockLowest);
-        float lowest = (stockLowest - allowance) * Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
-        float lift = lowest + (allowance > 0 ? wheelGroundGap : groundGap) - height;
-        vessel.Translate(up * lift);
-        Logger.Log($"Settled {vessel.GetDisplayName()} on the {(onWater ? "water" : "ground")}, {(lift < 0 ? "down" : "up")} {Math.Abs(lift):F2} m.");
+        lowest *= Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
+        // Where the template put it is where its ghost was, so it only moves if it would start inside the ground. If it's above
+        // it, it falls the gap as gravity eases in, rather than being seen to jump.
+        float lift = lowest + (onWheel ? wheelGroundGap : groundGap) - height;
+        if (lift > 0)
+            vessel.Translate(up * lift);
+
+        Logger.Log($"Settled {vessel.GetDisplayName()} on the {(onWater ? "water" : "ground")}, {(lift > 0 ? "lifted" : "left, falling")} {Math.Abs(lift):F2} m.");
     }
 
-    // Stock measures a wheel as its radius and another 0.15 m below its mount, which leaves a vessel on its gear that high
-    // above the ground. The springs are limp until a wheel touches, so it would fall that far and bounce.
-    private const float stockWheelAllowance = 0.15f;
-
-    // What stock's lowest point leaves under the tyres, when it's a wheel that it found lowest. Until the wheels are set up as physics
-    // starts, they're only Unity's colliders, which stock measures too.
-    private static float WheelAllowance(Vessel vessel, float stockLowest)
+    // How far the vessel's lowest point is below its root, along the ground's normal. Stock's measure is used for everything but
+    // the wheels. For a wheel it compares the collider's centre rather than its bottom, adds 0.15 m under it that leaves a vessel on its
+    // gear that high above the ground (the springs are limp until a wheel touches, so it would fall that far and bounce), and counts a
+    // retracted wheel at its extended position. So wheels are left out of it, and measured here: down to the tyre, unless retracted.
+    // Until the wheels are set up as physics starts, they're only Unity's colliders.
+    private static float LowestPoint(Vessel vessel, out bool onWheel)
     {
         Vector3 normal = vessel.groundCollisionHit.normal;
-        foreach (Part part in vessel.parts)
-            foreach (WheelCollider wheel in part.GetComponentsInChildren<WheelCollider>())
-                if (Mathf.Abs(Vector3.Dot(vessel.transform.position - wheel.transform.position, normal) + wheel.radius + stockWheelAllowance - stockLowest) < 0.01f)
-                    return stockWheelAllowance;
+        float wheels = float.NegativeInfinity;
+        List<GameObject> hidden = [];
 
-        return 0;
+        foreach (Part part in vessel.parts)
+        {
+            bool retracted = part.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>()?.stateString == "Retracted";
+            foreach (Collider collider in part.GetComponentsInChildren<Collider>())
+            {
+                if (collider is not WheelCollider && collider.name != "collisionEnhancer")
+                    continue;
+
+                if (collider is WheelCollider wheel && !retracted)
+                    wheels = Mathf.Max(wheels, Vector3.Dot(vessel.transform.position - wheel.bounds.center, normal) + wheel.radius);
+                hidden.Add(collider.gameObject);
+            }
+        }
+
+        // Stock measures only active colliders, and turns on the ones that aren't enabled.
+        foreach (GameObject collider in hidden)
+            collider.SetActive(false);
+
+        float structure = Mathf.Abs(vessel.getLowestPoint());
+        foreach (GameObject collider in hidden)
+            collider.SetActive(true);
+
+        // Infinite when it found no collider to measure, as stock checks too.
+        if (float.IsNaN(structure) || float.IsInfinity(structure))
+            structure = float.NegativeInfinity;
+
+        onWheel = wheels > structure;
+        return Mathf.Max(structure, wheels);
     }
 
     // Relative to the root part, as KSP works it out from the parts' rigidbodies once they're loaded. Physicsless

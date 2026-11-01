@@ -1,3 +1,4 @@
+using ModuleWheels;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -140,20 +141,32 @@ public struct TemplatePart
     // Part models come in whatever pose they were made in, maybe with a ramp down or a bay open. The animations as saved:
     // each clip and how far through it.
     public (string clip, float time)[] poses;
+    // Landing gear that's folded away. Its wheel collider stays where it was when deployed, so measuring leaves it out.
+    public bool gearUp;
 
     internal static List<TemplatePart> From(ProtoVessel proto) =>
         proto.protoPartSnapshots.Select(s => new TemplatePart { info = s.partInfo, variant = s.moduleVariantName, position = s.position, rotation = s.rotation,
-            poses = Poses(s.partInfo?.partPrefab, s.modules.Select(m => m.moduleValues)) }).ToList();
+            poses = Poses(s.partInfo?.partPrefab, s.modules.Select(m => m.moduleValues)), gearUp = GearUp(s.modules.Select(m => m.moduleValues)) }).ToList();
 
-    // As ModuleAnimateGeneric starts: at its saved time, or at the end of a one-shot animation that's been played.
+    // As ModuleAnimateGeneric starts: at its saved time, or at the end of a one-shot animation that's been played. Landing gear
+    // is at the end of its clip that's retracted, or deployed. Gear that hasn't a saved state starts deployed.
     internal static (string, float)[] Poses(Part prefab, IEnumerable<ConfigNode> modules)
     {
-        const string name = nameof(ModuleAnimateGeneric);
-        IEnumerable<PartModule> animators = prefab == null ? Enumerable.Empty<PartModule>() : prefab.Modules.Cast<PartModule>().Where(m => m.moduleName == name);
-        return modules.Where(m => m.GetValue("name") == name).Zip(animators.Cast<ModuleAnimateGeneric>(), (node, module) =>
+        List<ConfigNode> saved = modules.ToList();
+        List<PartModule> modelled = prefab == null ? [] : [.. prefab.Modules.Cast<PartModule>()];
+
+        IEnumerable<(string, float)> animated = saved.Where(m => m.GetValue("name") == nameof(ModuleAnimateGeneric)).Zip(modelled.OfType<ModuleAnimateGeneric>(), (node, module) =>
             (module.animationName, module.isOneShot && node.GetValue("aniState") == "FIXED" ? 1f
-                : float.TryParse(node.GetValue("animTime"), NumberStyles.Float, CultureInfo.InvariantCulture, out float time) ? time : 0f)).ToArray();
+                : float.TryParse(node.GetValue("animTime"), NumberStyles.Float, CultureInfo.InvariantCulture, out float time) ? time : 0f));
+
+        IEnumerable<(string, float)> gear = saved.Where(m => m.GetValue("name") == nameof(ModuleWheelDeployment)).Zip(modelled.OfType<ModuleWheelDeployment>(), (node, module) =>
+            (module.animationStateName, node.GetValue("stateString") == "Retracted" ? 1 - module.deployedPosition : module.deployedPosition));
+
+        return animated.Concat(gear).ToArray();
     }
+
+    internal static bool GearUp(IEnumerable<ConfigNode> modules) =>
+        modules.Any(m => m.GetValue("name") == nameof(ModuleWheelDeployment) && m.GetValue("stateString") == "Retracted");
 
     // Put a copy of the part's model, anything under the transform, in the saved poses.
     public void Pose(Transform model)

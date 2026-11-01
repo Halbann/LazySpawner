@@ -100,7 +100,7 @@ internal class CraftParser
             ConfigNode partNode = CreatePartNode(info, position, rotation, missionFlag, out int inverseStage);
             template.node.AddNode(partNode);
             templateParts.Add(new TemplatePart { info = info.availablePart, variant = partNode.GetValue("moduleVariantName"), position = position, rotation = rotation,
-                poses = TemplatePart.Poses(info.availablePart.partPrefab, info.craftNode.GetNodes("MODULE")) });
+                poses = TemplatePart.Poses(info.availablePart.partPrefab, info.craftNode.GetNodes("MODULE")), gearUp = TemplatePart.GearUp(info.craftNode.GetNodes("MODULE")) });
             highestStage = Math.Max(highestStage, inverseStage);
         }
 
