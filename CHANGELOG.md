@@ -27,6 +27,7 @@
 
 ### Other
 
+- Changed the default shortcut to Alt+F11 from Alt+F.
 - Fixed switched-off lights flashing on as spawned vessels appear.
 - Improved performance and memory use while the Spawn Vessels screen is open.
 
