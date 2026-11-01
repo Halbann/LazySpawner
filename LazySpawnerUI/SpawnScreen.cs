@@ -219,9 +219,10 @@ internal class SpawnScreen : ConsoleScreen
         Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => Summarised().lines.Count > 0)), () => Summarised().text).paragraphSpacing = 12;
 
         DebugUI.Spacer(content, 8);
-        Transform buttons = DebugUI.Row(content, alignment: TextAnchor.MiddleCenter);
+        // What can be done about what was spawned goes alongside, once there is something.
+        Transform buttons = DebugUI.Row(content, 8, TextAnchor.MiddleCenter);
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
-        Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => Summarised().ready && C.spawnRoutine == null);
+        Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, 120), () => Summarised().ready && C.spawnRoutine == null);
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
         // Where to click, or that the editor stays open.
         KSP.UI.TooltipTypes.TooltipController_Text spawnTooltip = DebugUI.Tooltip(spawn, "").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();
@@ -231,16 +232,16 @@ internal class SpawnScreen : ConsoleScreen
             spawnTooltip.enabled = placing() || Controller.InEditor;
             spawnTooltip.textString = placing() ? placeTooltip : editorTooltip;
         });
-        DebugUI.Spacer(content);
-
-        // What happened, with what can be done about it alongside.
-        Transform result = DebugUI.Row(Show(DebugUI.Box(content), () => C.status != ""), 6);
-        Text(DebugUI.Paragraph(result), () => C.status);
-        Show(DebugUI.Button(result, Loc("Button_SwitchTo"), () => Controller.SwitchTo(LastSpawned()), 80),
+        Show(DebugUI.Button(buttons, Loc("Button_SwitchTo"), () => Controller.SwitchTo(LastSpawned()), 80),
             () => LastSpawned() != null && (!HighLogic.LoadedSceneIsFlight || LastSpawned().vesselRef != FlightGlobals.ActiveVessel));
-        Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
+        Button undo = Show(DebugUI.Button(buttons, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
         DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));
         Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? Loc("Button_Undo") : Loc("Button_UndoCount", Removable()));
+
+        // What happened, as plain text rather than another box like the one that says what will.
+        DebugUI.Spacer(content, 4);
+        TextMeshProUGUI status = Show(Text(DebugUI.Paragraph(content), () => C.status), () => C.status != "");
+        status.alignment = TextAlignmentOptions.Top;
     }
 
     // The ten custom groups, five to a row, lit for the ones every vessel fires. Coloured again only when they change.
