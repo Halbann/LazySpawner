@@ -7,10 +7,14 @@ Press Alt+F11, or open the debug console (Alt+F12) and go to Cheats > Spawn Vess
 - Spawn craft from your game or provide a path to spawn any .craft file. Paths are picked up automatically from the clipboard.
 - Clone the active vessel, or the selected one in the Tracking Station.
 - Spawn the craft that you're editing in the VAB or SPH anywhere without leaving.
-- Place vessels with the mouse: on the ground, next to your vessel, on any planet, or in any orbit from map view.
+- Place vessels with the mouse: on the ground, on the sea, in the air, next to your vessel, on any planet, or in any orbit from map view.
 - Spawn them randomly nearby, in an orbit you type in, or at a launch site.
+- Spawn planes already flying: scroll to set the height and airspeed, and they leave with their engines running.
+- Spread orbiting vessels around the orbit, or give each its own orbital plane.
 - Spawn as many as you like at once.
 - Select how they should be crewed, hiring kerbals if needed.
+- Trigger any of the custom action groups as they spawn.
+- V-click while placing to spawn a vessel and switch to it.
 - You can always undo the previous spawn.
 - Save the current vessel as a craft file via Cheats > Save Vessel.
 
@@ -45,6 +49,11 @@ ProtoVessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude
 
 // Spawns airborne with velocity. When the vessel unpacks, a vessel module called SpawnedVessel turns on engines in the first stage and SAS, sets throttle to 100, turns off brakes, and retracts gear.
 ProtoVessel plane = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading, radarAltitude: 500, airspeed: 100), new CrewSettings(CrewMode.Pilot));
+
+// Toggles custom action groups in the first physics step after the vessel unpacks, or after it flies off if it's airborne.
+SpawnSituation parked = SpawnSituation.Landed(body, latitude, longitude, heading);
+parked.actionGroups = KSPActionGroup.Custom01 | KSPActionGroup.Custom03;
+Spawner.Spawn(template, parked);
 
 StartCoroutine(Spawner.SpawnAll(template, situations, crew, spawned)); // Several at once, spread over several frames
 
