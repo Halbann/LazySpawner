@@ -24,6 +24,7 @@
 ### Craft list
 
 - Added expansion craft to the Stock tab.
+- Made the craft search text persistent.
 - Fixed cloning a loaded vessel showing an out-of-date part count.
 
 ### Save Vessel

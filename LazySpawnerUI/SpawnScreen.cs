@@ -510,7 +510,6 @@ internal class SpawnScreen : ConsoleScreen
         {
             CraftList.Refresh();
             listed = null;
-            search.text = "";
             search.ActivateInputField();
             scroll.verticalNormalizedPosition = 1;
         }
@@ -519,7 +518,7 @@ internal class SpawnScreen : ConsoleScreen
     private void BuildPicker(Transform page)
     {
         Transform top = DebugUI.Row(page);
-        search = DebugUI.Field(top, "", _ => { }, -1);
+        search = DebugUI.Field(top, CraftList.search, text => CraftList.search.Value = text, -1);
         search.placeholder.GetComponent<TextMeshProUGUI>().text = Loc("Picker_Search");
         DebugUI.Tooltip(search, Loc("Picker_Search_Tooltip"));
 

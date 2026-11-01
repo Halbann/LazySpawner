@@ -107,6 +107,7 @@ internal static class CraftList
 
     public static readonly Setting<Source> source = Source.ThisSave;
     public static readonly Setting<Order> order = Order.Newest;
+    public static readonly Setting<string> search = "";
 
     // Craft picked or spawned, from anywhere, most recent first.
     public static readonly Setting<string> recent = "";
