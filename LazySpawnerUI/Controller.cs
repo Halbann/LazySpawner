@@ -301,7 +301,10 @@ public class Controller : MonoBehaviour
             {
                 situations ??= CreateSituations(template, count, false);
                 foreach (SpawnSituation situation in situations)
+                {
                     situation.actionGroups = spawnGroups;
+                    situation.easeGravity = true;
+                }
             }
         }
         catch (Exception e)

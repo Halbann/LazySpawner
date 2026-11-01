@@ -25,6 +25,8 @@ public class SpawnSituation
     public float airspeed;
     // Custom action groups it fires as their keys would, in the first physics step after it unpacks. After it flies off, if it's in the air.
     public KSPActionGroup actionGroups;
+    // Landed: eases gravity in over 100 physics steps as it unpacks, not stock's 16, which still leaves vessels on limp gear with a fall to land.
+    public bool easeGravity;
     public bool Airborne => landed && radarAltitude > 0;
 
     // World rotation of the part the vessel is controlled from, as the navball sees it.
