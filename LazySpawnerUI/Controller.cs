@@ -70,7 +70,8 @@ public class Controller : MonoBehaviour
     // Settings, only in settings.cfg.
     public static readonly Setting<bool> useKeybind = true;
     public static readonly Setting<KeyCode> keybindModifier = KeyCode.LeftAlt;
-    public static readonly Setting<KeyCode> keybind = KeyCode.F11;
+    public static readonly Setting<KeyCode> keybindSecondModifier = KeyCode.LeftShift;
+    public static readonly Setting<KeyCode> keybind = KeyCode.L;
 
     // Result.
     internal readonly List<ProtoVessel> lastSpawned = new List<ProtoVessel>();
@@ -169,9 +170,12 @@ public class Controller : MonoBehaviour
             status = "";
     }
 
+    // A modifier set to None isn't needed.
+    private static bool Held(KeyCode modifier) => modifier == KeyCode.None || Input.GetKey(modifier);
+
     protected void Update()
     {
-        if (useKeybind && (keybindModifier == KeyCode.None || Input.GetKey(keybindModifier)) && Input.GetKeyDown(keybind))
+        if (useKeybind && Held(keybindModifier) && Held(keybindSecondModifier) && Input.GetKeyDown(keybind))
         {
             if (SpawnScreen.Visible)
                 Close();
