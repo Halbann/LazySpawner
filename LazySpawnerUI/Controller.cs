@@ -60,6 +60,10 @@ public class Controller : MonoBehaviour
     // Launch site, by name.
     public static readonly Setting<string> launchSite = "";
 
+    // Custom action groups, fired once physics starts.
+    public static readonly Setting<KSPActionGroup> spawnGroups = KSPActionGroup.None;
+    public static readonly Setting<bool> showGroups = false;
+
     // Crew.
     public static readonly Setting<CrewMode> crewMode = CrewMode.FillCommand;
     public static readonly Setting<bool> onlyNewKerbals = true;
@@ -294,7 +298,11 @@ public class Controller : MonoBehaviour
         try
         {
             if (template != null)
+            {
                 situations ??= CreateSituations(template, count, false);
+                foreach (SpawnSituation situation in situations)
+                    situation.actionGroups = spawnGroups;
+            }
         }
         catch (Exception e)
         {

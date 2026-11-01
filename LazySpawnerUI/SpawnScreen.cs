@@ -155,6 +155,10 @@ internal class SpawnScreen : ConsoleScreen
         DebugUI.Tooltip(Show(DebugUI.Button(craftButtons, Loc("Craft_Edit"), () => Controller.OpenInEditor(Controller.SelectedCraft), half),
             () => Controller.source == Controller.Source.Craft && Controller.SelectedCraft != null), Loc("Craft_Edit_Tooltip"));
         Field(content, Controller.count);
+
+        // Rarely changed, so out of the way until asked for.
+        Toggle(content, Loc("Groups"), Controller.showGroups);
+        ActionGroups(Panel(content, () => Controller.showGroups));
         DebugUI.Spacer(content, 10);
 
         // Where.
@@ -234,6 +238,30 @@ internal class SpawnScreen : ConsoleScreen
         Button undo = Show(DebugUI.Button(result, Loc("Button_Undo"), () => C.Undo(), 80), () => Removable() > 0);
         DebugUI.Tooltip(undo, Loc("Button_Undo_Tooltip"));
         Text(undo.GetComponentInChildren<TextMeshProUGUI>(), () => Removable() == 1 ? Loc("Button_Undo") : Loc("Button_UndoCount", Removable()));
+    }
+
+    // The ten custom groups, five to a row, lit for the ones every vessel fires. Coloured again only when they change.
+    private void ActionGroups(Transform parent)
+    {
+        Button[] buttons = new Button[10];
+        Transform line = null;
+        for (int i = 0; i < 10; i++)
+        {
+            if (i % 5 == 0)
+                line = Line(parent, "");
+            KSPActionGroup group = (KSPActionGroup)((int)KSPActionGroup.Custom01 << i);
+            buttons[i] = DebugUI.Button(line, (i + 1).ToString(), () => Controller.spawnGroups.Value ^= group, (DebugUI.ControlWidth - 16) / 5);
+        }
+
+        KSPActionGroup? shown = null;
+        Bind(() =>
+        {
+            if (Controller.spawnGroups.Value == shown)
+                return;
+            shown = Controller.spawnGroups;
+            for (int i = 0; i < 10; i++)
+                DebugUI.Select(buttons[i], ((int)Controller.spawnGroups.Value & (int)KSPActionGroup.Custom01 << i) != 0);
+        });
     }
 
     // Vessels from the editor stay in the save until the game leaves it. The rest can be destroyed meanwhile.

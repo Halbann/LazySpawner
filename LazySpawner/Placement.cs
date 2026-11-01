@@ -23,6 +23,8 @@ public class SpawnSituation
     // It stays put until it's near enough to the active vessel for physics, then flies off with its engines running.
     public float radarAltitude;
     public float airspeed;
+    // Custom action groups it fires as their keys would, in the first physics step after it unpacks. After it flies off, if it's in the air.
+    public KSPActionGroup actionGroups;
     public bool Airborne => landed && radarAltitude > 0;
 
     // World rotation of the part the vessel is controlled from, as the navball sees it.

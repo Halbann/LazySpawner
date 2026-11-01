@@ -3,49 +3,55 @@ using System.Linq;
 
 namespace LazySpawner;
 
-// A vessel spawned in the air is landed where it was put until physics starts, so that on rails it neither falls
-// nor is destroyed by the air pressure, the way unloaded vessels in flight are. Meanwhile it loads and unpacks at
-// a flying vessel's distances. Then it flies: along its nose, gear up, brakes off, SAS on, full throttle, and the
-// engines of the first stage that has any running, though nothing else in that stage. Without the mod, it falls.
-public class AirborneStart : VesselModule
+// What a spawned vessel does once physics starts, if it was asked to anything. Whatever the situation, it fires the
+// action groups it was given, once the parts have unpacked. One spawned in the air is also landed where it was put
+// until then, so that on rails it neither falls nor is destroyed by the air pressure, the way unloaded vessels in
+// flight are. Meanwhile it loads and unpacks at a flying vessel's distances. Then it flies: along its nose, gear up,
+// brakes off, SAS on, full throttle, and the engines of the first stage that has any running, though nothing else in
+// that stage. Without the mod, it falls.
+public class SpawnedVessel : VesselModule
 {
     [KSPField(isPersistant = true)]
-    public bool waiting;
+    public bool airborne;
 
     [KSPField(isPersistant = true)]
     public float airspeed;
+
+    [KSPField(isPersistant = true)]
+    public KSPActionGroup actionGroups;
 
     // Taking the whole air load at once, the joints overshoot it and the weakest snap, wing roots first. So they
     // can't break for a while, starting in the first physics step after the parts unpack, which is when they would.
     public static int settlingSteps = 400;
     private int settling;
 
-    // Null for a vessel that isn't spawned in the air, which a clone of one waiting would otherwise be.
-    internal static void Set(ProtoVessel protoVessel, float? airspeed)
+    // Nothing for a vessel with nothing to do, which a clone of one that hasn't done it yet would otherwise be.
+    internal static void Set(ProtoVessel protoVessel, float? airspeed, KSPActionGroup actionGroups)
     {
         ConfigNode modules = protoVessel.vesselModules ??= new ConfigNode("VESSELMODULES");
-        modules.RemoveNodes(nameof(AirborneStart));
-        if (airspeed == null)
+        modules.RemoveNodes(nameof(SpawnedVessel));
+        if (airspeed == null && actionGroups == KSPActionGroup.None)
             return;
 
-        ConfigNode node = modules.AddNode(nameof(AirborneStart));
-        node.AddValue(nameof(waiting), true);
-        node.AddValue(nameof(AirborneStart.airspeed), airspeed.Value);
+        ConfigNode node = modules.AddNode(nameof(SpawnedVessel));
+        node.AddValue(nameof(airborne), airspeed != null);
+        node.AddValue(nameof(SpawnedVessel.airspeed), airspeed ?? 0);
+        node.AddValue(nameof(SpawnedVessel.actionGroups), actionGroups);
     }
 
     public override void OnLoad(ConfigNode node)
     {
-        if (waiting)
+        if (airborne)
             vessel.vesselRanges.landed = new VesselRanges.Situation(vessel.vesselRanges.flying);
     }
 
     // Before the parts unpack, which is when they take the orbit's velocity.
     public override void OnGoOffRails()
     {
-        if (!waiting)
+        if (!airborne)
             return;
 
-        waiting = false;
+        airborne = false;
         vessel.vesselRanges.landed = new VesselRanges.Situation(PhysicsGlobals.Instance.VesselRangesDefault.landed);
         vessel.Landed = false;
 
@@ -72,16 +78,27 @@ public class AirborneStart : VesselModule
         enabled = true;
     }
 
-    // Every vessel has one, so it only updates while settling. Stock still calls the rest.
-    public override bool ShouldBeActive() => settling > 0;
+    // Every vessel has one, so it only updates while it has something to do. Stock still calls the rest.
+    public override bool ShouldBeActive() => settling > 0 || actionGroups != KSPActionGroup.None;
 
     // Then back to however they unpacked, as stock does it.
     protected void FixedUpdate()
     {
-        bool unbreakable = --settling > 0 || CheatOptions.UnbreakableJoints;
-        foreach (Part part in vessel.parts)
-            if (part.attachJoint != null)
-                part.attachJoint.SetUnbreakable(unbreakable, part.rigidAttachment);
-        enabled = settling > 0;
+        if (vessel.packed)
+            return;
+
+        for (KSPActionGroup group = KSPActionGroup.Custom01; group <= KSPActionGroup.Custom10; group = (KSPActionGroup)((int)group << 1))
+            if ((actionGroups & group) != 0)
+                vessel.ActionGroups.ToggleGroup(group);
+        actionGroups = KSPActionGroup.None;
+
+        if (settling > 0)
+        {
+            bool unbreakable = --settling > 0 || CheatOptions.UnbreakableJoints;
+            foreach (Part part in vessel.parts)
+                if (part.attachJoint != null)
+                    part.attachJoint.SetUnbreakable(unbreakable, part.rigidAttachment);
+        }
+        enabled = ShouldBeActive();
     }
 }

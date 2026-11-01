@@ -356,7 +356,7 @@ public static class Spawner
         protoVessel.skipGroundPositioning = splashed || airborne || measured;
         protoVessel.skipGroundPositioningForDroppedPart = airborne || measured;
         protoVessel.vesselSpawning = landed && !airborne;
-        AirborneStart.Set(protoVessel, airborne ? situation.airspeed : (float?)null);
+        SpawnedVessel.Set(protoVessel, airborne ? situation.airspeed : (float?)null, situation.actionGroups);
 
         // Landed vessels still have an orbit, which is just the ground moving under them. On rails, KSP puts a
         // vessel's centre of mass on its orbit, not its root part, so an orbit for the root would move it.

@@ -9,6 +9,8 @@ namespace LazySpawner;
 // choose their own plurals.
 internal static class Localisation
 {
+    private static readonly Dictionary<string, string> words = new Dictionary<string, string>();
+
     public static string Loc(string key, params object[] args)
     {
         // Words without numbers don't change while the game runs, and the screens ask for them every frame.
@@ -18,8 +20,6 @@ internal static class Localisation
             words[key] = text = Localizer.Format($"#LOC_{Meta.name}_{key}");
         return text;
     }
-
-    private static readonly Dictionary<string, string> words = new Dictionary<string, string>();
 
     // The game only reads the words when it starts, so after a hot reload, read the English again.
     private static void OnHotLoad()
