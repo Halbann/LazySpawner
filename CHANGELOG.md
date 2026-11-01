@@ -12,10 +12,8 @@
 - Changed the placing hint to show only show the most relevant hints for the currently held keys.
 - Fixed vessels spawning with no physics for several seconds.
 - Fixed vessels spawning on top of a structure rather when trying to spawn inside.
-- Fixed planes and other vessels on landing gear popping up and bouncing when spawned on the ground.
 - Fixed craft popping up or falling when spawned on the ground.
 - Fixed placement sometimes appearing at floor level when the mouse is on a building's roof.
-- Fixed vessels spawning too high, and ghosts showing animated parts in the wrong pose.
 
 ### Orbit
 
