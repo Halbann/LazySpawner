@@ -36,6 +36,7 @@ internal class SaveScreen : ConsoleScreen
         Clear();
         Build();
         Refresh();
+        Fit();
         GameEvents.onVesselChange.Add(OnVesselChange);
         GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
     }
@@ -59,7 +60,8 @@ internal class SaveScreen : ConsoleScreen
 
     private void Build()
     {
-        Transform page = DebugUI.ScrollList(Page(), 100);
+        RectTransform page = DebugUI.ScrollList(Page(), 100);
+        FitWindow(page);
         notHere = DebugUI.Paragraph(page);
         content = DebugUI.Column(page).gameObject;
         Transform column = content.transform;

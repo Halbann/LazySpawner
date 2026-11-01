@@ -42,6 +42,8 @@ internal class SpawnScreen : ConsoleScreen
     protected void Start()
     {
         Build(HighLogic.LoadedScene);
+        Update();
+        Fit();
         GameEvents.onLevelWasLoaded.Add(Build);
     }
 
@@ -57,7 +59,9 @@ internal class SpawnScreen : ConsoleScreen
 
         main = Page();
         picker = Page();
-        BuildMain(DebugUI.ScrollList(main, 100));
+        RectTransform list = DebugUI.ScrollList(main, 100);
+        BuildMain(list);
+        FitWindow(list);
         BuildPicker(picker);
         picker.gameObject.SetActive(false);
     }
@@ -207,18 +211,19 @@ internal class SpawnScreen : ConsoleScreen
         DebugUI.Spacer(content, 10);
 
         // What happens, and the buttons that make it happen. It makes several lists and strings, so a few times a
-        // second rather than every frame.
-        Kept<int, (List<string> lines, bool ready, string text)> summary = new Kept<int, (List<string>, bool, string)>(_ =>
+        // second rather than every frame, or at once when switching mode, so it never describes the one before.
+        Kept<(Controller.SituationMode, CrewMode), (List<string> lines, bool ready, string text)> kept = new(_ =>
         {
             List<string> lines = Summary(out bool ready);
             return (lines, ready, Bullets(lines));
         }, 0.2f);
-        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => summary.Get().lines.Count > 0)), () => summary.Get().text).paragraphSpacing = 12;
+        (List<string> lines, bool ready, string text) Summarised() => kept.Get((Controller.situationMode.Value, Controller.crewMode.Value));
+        Text(DebugUI.Paragraph(Show(DebugUI.Box(content), () => Summarised().lines.Count > 0)), () => Summarised().text).paragraphSpacing = 12;
 
         DebugUI.Spacer(content, 8);
         Transform buttons = DebugUI.Row(content, alignment: TextAnchor.MiddleCenter);
         bool placing() => Controller.situationMode == Controller.SituationMode.Place;
-        Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => summary.Get().ready && C.spawnRoutine == null);
+        Button spawn = Enable(DebugUI.Button(buttons, "", () => { if (placing()) C.Place(); else C.Spawn(); }, DebugUI.ControlWidth), () => Summarised().ready && C.spawnRoutine == null);
         Text(spawn.GetComponentInChildren<TextMeshProUGUI>(), () => Loc(C.spawnRoutine != null ? "Button_Spawning" : placing() ? "Button_Place" : "Button_Spawn"));
         // Where to click, or that the editor stays open.
         KSP.UI.TooltipTypes.TooltipController_Text spawnTooltip = DebugUI.Tooltip(spawn, "").GetComponent<KSP.UI.TooltipTypes.TooltipController_Text>();

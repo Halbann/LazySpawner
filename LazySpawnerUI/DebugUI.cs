@@ -2,6 +2,7 @@
 // exactly the same. After Rescored's and HotReloadKSP's debug screens, which were after Phantomical's
 // BackgroundResourceProcessing. KSP 1.12 is the last version, so the paths into its prefabs won't change.
 
+using KSP.UI;
 using KSP.UI.Screens.DebugToolbar;
 using KSP.UI.TooltipTypes;
 using System;
@@ -9,6 +10,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
@@ -68,6 +70,15 @@ internal static class DebugUI
     public static void Show(string name) => DebugScreenSpawner.ShowTab(name);
 
     public static void Hide() => Spawner?.screen.Hide();
+
+    public static UIWindow Window => Spawner.screen.GetComponent<UIWindow>();
+
+    // Stock's own minimum size, which other screens are given back.
+    public static void ResetWindowMinimum()
+    {
+        if (Spawner != null)
+            Window.minSize = Spawner.screenPrefab.GetComponent<UIWindow>().minSize;
+    }
 
     #endregion
 
@@ -280,13 +291,89 @@ internal static class DebugUI
     #endregion
 }
 
+// Says when what it holds changes size, which is when its sections come and go.
+internal class SizeWatcher : UIBehaviour
+{
+    public Action changed;
+
+    protected override void OnRectTransformDimensionsChange() => changed?.Invoke();
+}
+
 // A screen in the console, built from DebugUI's widgets, some of them bound to the game. UpdateBindings brings those up to date.
 internal abstract class ConsoleScreen : MonoBehaviour
 {
     internal const string grey = "<color=#a0a0a0>", orange = "<color=#ff9a6a>";
     private readonly List<Action> bindings = new List<Action>();
 
-    protected void OnDisable() => InputLockManager.RemoveControlLock(DebugUI.TypingLock);
+    protected void OnDisable()
+    {
+        InputLockManager.RemoveControlLock(DebugUI.TypingLock);
+        DebugUI.ResetWindowMinimum();
+        fitDirty = true;
+    }
+
+    #region Window
+
+    private RectTransform list;
+    private bool fitDirty;
+
+    // The window can't be smaller than this scroll list's contents need, screen allowing, and grows to that if it is. It
+    // follows them as they grow, but is left alone as they shrink. Other screens get stock's minimum back.
+    protected void FitWindow(RectTransform list)
+    {
+        this.list = list;
+        list.gameObject.AddComponent<SizeWatcher>().changed = () => fitDirty = true;
+        fitDirty = true;
+    }
+
+    // For whatever changes size other than through a binding, which the watcher only notices after layout.
+    protected void LateUpdate()
+    {
+        if (fitDirty)
+            Fit();
+    }
+
+    // Once the screen is bound, so it's laid out for what it shows. A screen that's just been shown is drawn once before
+    // it updates, so it fits itself as it's built.
+    protected void Fit()
+    {
+        if (list == null)
+            return;
+
+        fitDirty = false;
+        Canvas.ForceUpdateCanvases();
+        UIWindow window = DebugUI.Window;
+        RectTransform rect = (RectTransform)window.transform;
+
+        // What the window has around the list is the difference between their sizes. Fixed widths are minimums, so the
+        // list's own minimum is as narrow as it can be without cutting anything off, where its preferred is as tall as it wants.
+        Vector2 size = rect.rect.size;
+        Vector2 around = size - ((RectTransform)list.parent).rect.size;
+        Vector2 needed = Vector2.Min(around + new Vector2(LayoutUtility.GetMinWidth(list), LayoutUtility.GetPreferredHeight(list)), ((RectTransform)rect.parent).rect.size);
+        window.minSize = needed;
+
+        // Never smaller than that, but never made smaller either. Its top left corner stays where it is.
+        Vector2 grown = Vector2.Max(size, needed);
+        if (grown != size)
+        {
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, grown.x);
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, grown.y);
+            rect.anchoredPosition += new Vector2((grown.x - size.x) * rect.pivot.x, (size.y - grown.y) * (1 - rect.pivot.y));
+            window.ClampToScreen();
+
+            // Laid out again at its new size, so the scroll bar is gone and nothing is cut off when it's drawn. The window's
+            // layouts aren't dirty yet, so the canvas has nothing to rebuild, and a rebuild skips what's under a rect with
+            // no layout of its own. So it starts from the topmost layout between the window and the list.
+            Transform top = list;
+            for (Transform t = list; t != rect; t = t.parent)
+                if (t.GetComponent<ILayoutController>() != null)
+                    top = t;
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)top);
+            Canvas.ForceUpdateCanvases();
+        }
+    }
+
+    #endregion
 
     // Built in Start rather than Awake, so that after a hot reload it's built by the new code. A hot reload copies the old
     // screen's widgets across, so they go first.
@@ -300,10 +387,15 @@ internal abstract class ConsoleScreen : MonoBehaviour
 
     protected RectTransform Page() => DebugUI.Fill(DebugUI.Column(transform, 3, new RectOffset(4, 4, 4, 4)));
 
+    // When a binding shows, hides or rewrites something, the window is fitted at once, ahead of every late update in the
+    // frame. The scroll view's sets its bar from the window's size then, so any later and it's drawn wrong for a frame.
     protected void UpdateBindings()
     {
         foreach (Action binding in bindings)
             binding();
+
+        if (fitDirty)
+            Fit();
     }
 
     protected void Bind(Action binding) => bindings.Add(binding);
@@ -313,8 +405,11 @@ internal abstract class ConsoleScreen : MonoBehaviour
         Bind(() =>
         {
             bool show = when();
-            if (widget.gameObject.activeSelf != show)
-                widget.gameObject.SetActive(show);
+            if (widget.gameObject.activeSelf == show)
+                return;
+
+            widget.gameObject.SetActive(show);
+            fitDirty = true;
         });
         return widget;
     }
@@ -330,8 +425,11 @@ internal abstract class ConsoleScreen : MonoBehaviour
         Bind(() =>
         {
             string s = content();
-            if (text.text != s)
-                text.text = s;
+            if (text.text == s)
+                return;
+
+            text.text = s;
+            fitDirty = true;
         });
         return text;
     }
