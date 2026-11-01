@@ -356,7 +356,7 @@ public static class Spawner
         protoVessel.skipGroundPositioning = splashed || airborne || measured;
         protoVessel.skipGroundPositioningForDroppedPart = airborne || measured;
         protoVessel.vesselSpawning = landed && !airborne;
-        SpawnedVessel.Set(protoVessel, airborne ? situation.airspeed : (float?)null, situation.actionGroups);
+        SpawnedVessel.Set(protoVessel, airborne ? situation.airspeed : (float?)null, situation.actionGroups, landed && !airborne);
 
         // Landed vessels still have an orbit, which is just the ground moving under them. On rails, KSP puts a
         // vessel's centre of mass on its orbit, not its root part, so an orbit for the root would move it.
@@ -421,6 +421,9 @@ public static class Spawner
     // Between the ground and a vessel's lowest point, so it doesn't start touching it.
     private const float groundGap = 0.05f;
 
+    // The same for wheels, which stand on their tyres with the suspension drooped, so they hardly move after.
+    private const float wheelGroundGap = 0.01f;
+
     // Stand the vessel on the ground under it, or the sea, by its lowest collider, as stock measures it. Its parts are as the craft
     // saved them by now, unlike the part models the template measures, which can have a ramp or a bay door open. Moving it is still
     // fine as long as physics hasn't stepped yet.
@@ -443,13 +446,32 @@ public static class Spawner
             return;
 
         // Infinite when it found no collider to measure, as stock checks too.
-        float lowest = Mathf.Abs(vessel.getLowestPoint()) * Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
-        if (float.IsInfinity(lowest) || float.IsNaN(lowest))
+        float stockLowest = Mathf.Abs(vessel.getLowestPoint());
+        if (float.IsInfinity(stockLowest) || float.IsNaN(stockLowest))
             return;
 
-        float lift = lowest + groundGap - height;
+        float allowance = WheelAllowance(vessel, stockLowest);
+        float lowest = (stockLowest - allowance) * Mathf.Cos(Vector3.Angle(vessel.groundCollisionHit.normal, up) * Mathf.Deg2Rad);
+        float lift = lowest + (allowance > 0 ? wheelGroundGap : groundGap) - height;
         vessel.Translate(up * lift);
         Logger.Log($"Settled {vessel.GetDisplayName()} on the {(onWater ? "water" : "ground")}, {(lift < 0 ? "down" : "up")} {Math.Abs(lift):F2} m.");
+    }
+
+    // Stock measures a wheel as its radius and another 0.15 m below its mount, which leaves a vessel on its gear that high
+    // above the ground. The springs are limp until a wheel touches, so it would fall that far and bounce.
+    private const float stockWheelAllowance = 0.15f;
+
+    // What stock's lowest point leaves under the tyres, when it's a wheel that it found lowest. Until the wheels are set up as physics
+    // starts, they're only Unity's colliders, which stock measures too.
+    private static float WheelAllowance(Vessel vessel, float stockLowest)
+    {
+        Vector3 normal = vessel.groundCollisionHit.normal;
+        foreach (Part part in vessel.parts)
+            foreach (WheelCollider wheel in part.GetComponentsInChildren<WheelCollider>())
+                if (Mathf.Abs(Vector3.Dot(vessel.transform.position - wheel.transform.position, normal) + wheel.radius + stockWheelAllowance - stockLowest) < 0.01f)
+                    return stockWheelAllowance;
+
+        return 0;
     }
 
     // Relative to the root part, as KSP works it out from the parts' rigidbodies once they're loaded. Physicsless

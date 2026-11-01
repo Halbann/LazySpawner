@@ -20,21 +20,29 @@ public class SpawnedVessel : VesselModule
     [KSPField(isPersistant = true)]
     public KSPActionGroup actionGroups;
 
+    // Landed, it eases gravity in as stock does when a vessel goes off rails, but slowly: stock's 16 steps still leave one on its
+    // limp gear with a fall to land.
+    [KSPField(isPersistant = true)]
+    public bool easeGravity;
+
+    public static int gravityEaseSteps = 100;
+
     // Taking the whole air load at once, the joints overshoot it and the weakest snap, wing roots first. So they
     // can't break for a while, starting in the first physics step after the parts unpack, which is when they would.
     public static int settlingSteps = 400;
     private int settling;
 
     // Nothing for a vessel with nothing to do, which a clone of one that hasn't done it yet would otherwise be.
-    internal static void Set(ProtoVessel protoVessel, float? airspeed, KSPActionGroup actionGroups)
+    internal static void Set(ProtoVessel protoVessel, float? airspeed, KSPActionGroup actionGroups, bool easeGravity)
     {
         ConfigNode modules = protoVessel.vesselModules ??= new ConfigNode("VESSELMODULES");
         modules.RemoveNodes(nameof(SpawnedVessel));
-        if (airspeed == null && actionGroups == KSPActionGroup.None)
+        if (airspeed == null && actionGroups == KSPActionGroup.None && !easeGravity)
             return;
 
         ConfigNode node = modules.AddNode(nameof(SpawnedVessel));
         node.AddValue(nameof(airborne), airspeed != null);
+        node.AddValue(nameof(SpawnedVessel.easeGravity), easeGravity);
         node.AddValue(nameof(SpawnedVessel.airspeed), airspeed ?? 0);
         node.AddValue(nameof(SpawnedVessel.actionGroups), actionGroups);
     }
@@ -48,6 +56,12 @@ public class SpawnedVessel : VesselModule
     // Before the parts unpack, which is when they take the orbit's velocity.
     public override void OnGoOffRails()
     {
+        if (easeGravity)
+        {
+            easeGravity = false;
+            vessel.precalc.easingFrameIncrease = 1.0 / gravityEaseSteps;
+        }
+
         if (!airborne)
             return;
 
