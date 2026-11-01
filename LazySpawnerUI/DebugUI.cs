@@ -192,8 +192,10 @@ internal static class DebugUI
         return tmp;
     }
 
-    // Typing in a field mustn't fire the ship's keys: "1" is action group 1, and a space stages.
+    // Typing in a field mustn't fire the ship's keys: "1" is action group 1, and a space stages. Camera controls stay free, but
+    // not its modes, which V cycles.
     public const string TypingLock = "LazySpawnerTyping";
+    private const ControlTypes typingLocks = ControlTypes.ALLBUTCAMERAS | ControlTypes.CAMERAMODES;
 
     public static TMP_InputField Field(Transform parent, string text, Action<string> changed, float width = -1)
     {
@@ -207,7 +209,7 @@ internal static class DebugUI
         input.textViewport.offsetMin += new Vector2(0, -8);
 
         input.onValueChanged.AddListener(s => changed(s));
-        input.onSelect.AddListener(_ => InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, TypingLock));
+        input.onSelect.AddListener(_ => InputLockManager.SetControlLock(typingLocks, TypingLock));
         input.onDeselect.AddListener(_ => InputLockManager.RemoveControlLock(TypingLock));
         return input;
     }

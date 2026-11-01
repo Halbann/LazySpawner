@@ -13,7 +13,7 @@
 - Fixed vessels spawning with no physics for several seconds.
 - Fixed vessels spawning on top of a structure rather when trying to spawn inside.
 - Fixed planes and other vessels on landing gear popping up and bouncing when spawned on the ground.
-- Fixed rovers, and craft saved with their landing gear retracted, popping up or falling when spawned on the ground. Their ghosts now stand on their wheels too.
+- Fixed craft popping up or falling when spawned on the ground.
 - Fixed placement appearing at floor level when the mouse is on a building's roof.
 - Fixed vessels spawning too high, and ghosts showing animated parts in the wrong pose.
 
@@ -36,6 +36,7 @@
 ### Other
 
 - Changed the default shortcut to Alt+F11 from Alt+F.
+- Fixed the camera mode changing when typing V in a text field.
 - Fixed switched-off lights flashing on as spawned vessels appear.
 - Improved performance and memory use while the Spawn Vessels screen is open.
 
