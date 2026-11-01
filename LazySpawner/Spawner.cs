@@ -64,7 +64,8 @@ public static class Spawner
         UpdateRoboticsReferences(node, changedPIDs);
 
         // Rovers and planes shouldn't roll away as soon as they touch the ground.
-        if (situation.landed && !situation.Airborne && !OnWater(situation))
+        Pose(template, situation, out _, out bool onWater);
+        if (situation.landed && !situation.Airborne && !onWater)
             SetBrakes(node);
         // Launch clamps count as touching the ground, which makes the whole vessel "landed", even in orbit. On water,
         // they'd reach down to the seabed.
@@ -503,11 +504,6 @@ public static class Spawner
     public static (Vector3d position, Quaternion rotation) Pose(VesselTemplate template, SpawnSituation situation, out double height, out bool splashed) =>
         GetPose(template, situation, template.ReferenceRotation, out height, out splashed, out _);
 
-    // On the sea rather than the ground under it, and not in the air over it.
-    private static bool OnWater(SpawnSituation situation) =>
-        situation.landed && !situation.Airborne && situation.body.ocean
-        && SurfaceAltitude(situation.body, situation.latitude, situation.longitude, situation.groundSearchAltitude, out _) < 0;
-
     private static (Vector3d, Quaternion) GetPose(VesselTemplate template, SpawnSituation situation, Quaternion referenceRelative, out double height, out bool splashed, out bool measured)
     {
         CelestialBody body = situation.body;
@@ -521,12 +517,15 @@ public static class Spawner
             return (situation.orbit.getPositionAtUT(UT), (situation.rotation ?? Placement.Prograde(situation.orbit, UT)) * toRoot);
         }
 
-        double terrain = SurfaceAltitude(body, situation.latitude, situation.longitude, situation.groundSearchAltitude, out measured);
-        bool water = body.ocean && terrain < 0;
-        splashed = water && !situation.Airborne;
-
         Quaternion frame = Placement.SurfaceFrame(body, situation.latitude, situation.longitude, situation.heading);
         Quaternion rotation = situation.rotation * toRoot ?? FaceHeading(frame * template.UprightRotation, referenceRelative, frame);
+
+        // The ground is measured under the vessel's middle, not its root, which can hang off the edge of a roof the rest stands on.
+        Vector3 middle = rotation * template.BoundsFor(!situation.Airborne).center;
+        body.GetLatLonAlt(body.GetWorldSurfacePosition(situation.latitude, situation.longitude, 0) + (Vector3d)middle, out double lat, out double lon, out _);
+        double terrain = SurfaceAltitude(body, lat, lon, situation.groundSearchAltitude, out measured);
+        bool water = body.ocean && terrain < 0;
+        splashed = water && !situation.Airborne;
 
         // Lift the vessel so its lowest part clears the ground.
         height = template.HeightAboveBottom(Quaternion.Inverse(frame) * rotation, launchClamps: !water && !situation.Airborne) + groundGap + Math.Max(situation.radarAltitude, 0);
