@@ -2,19 +2,19 @@
 
 KSP mod for spawning vessels individually and en masse in a variety of ways from flight, the tracking station, the KSC or the SPH/VAB.
 
-Press Alt+F11, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
+Press Alt+Shift+L, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
 
 - Spawn craft from your game or provide a path to spawn any .craft file. Paths are picked up automatically from the clipboard.
-- Clone the active vessel, or the selected one in the Tracking Station.
-- Spawn the craft that you're editing in the VAB or SPH anywhere without leaving.
+- Spawn as many craft as you like at once.
 - Place vessels with the mouse: on the ground, on the sea, in the air, next to your vessel, on any planet, or in any orbit from map view.
-- Spawn them randomly nearby, in an orbit you type in, or at a launch site.
-- Spawn planes already flying: scroll to set the height and airspeed, and they leave with their engines running.
-- Spread orbiting vessels around the orbit, or give each its own orbital plane.
-- Spawn as many as you like at once.
-- Select how they should be crewed, hiring kerbals if needed.
-- Trigger any of the custom action groups as they spawn.
-- V-click while placing to spawn a vessel and switch to it.
+- Spawn planes already flying: scroll to set the height and airspeed. Engines in the first stage activate automatically.
+- V-click while placing to spawn a vessel and switch to it at the same time.
+- Spawn them randomly nearby, in a specified orbit, or at a launch site.
+- Spawn constellations with even spacing and ascending nodes.
+- Spawn the craft that you're editing in the VAB or SPH anywhere without leaving.
+- Clone the active vessel, or the selected one in the Tracking Station.
+- Specify how craft should be crewed, hiring kerbals if needed.
+- Specify actions groups to trigger on spawn.
 - You can always undo the previous spawn.
 - Save the current vessel as a craft file via Cheats > Save Vessel.
 
