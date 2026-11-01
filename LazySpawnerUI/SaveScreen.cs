@@ -88,6 +88,7 @@ internal class SaveScreen : ConsoleScreen
         Transform resultRow = DebugUI.Row(resultBox.transform, 6);
         result = DebugUI.Paragraph(resultRow);
         edit = DebugUI.Tooltip(DebugUI.Button(resultRow, Loc("Craft_Edit"), () => Controller.OpenInEditor(CraftList.Get(savedPath)), 80), Loc("Save_Edit_Tooltip")).gameObject;
+        resultBox.SetActive(false);
     }
 
     private void Refresh()
