@@ -199,6 +199,16 @@ internal static class DebugUI
     {
         TMP_InputField input = Clone(P.field, parent, width).GetComponent<TMP_InputField>();
         input.text = text;
+
+        // Stock centres the letters typed, so the text jumps as ones with a tail or a dot come and go. Lined up by its
+        // baseline it stays put, moved down to look centred.
+        foreach (TMP_Text label in new[] { input.textComponent, (TMP_Text)input.placeholder })
+        {
+            label.alignment = TextAlignmentOptions.Baseline;
+            label.rectTransform.offsetMin += new Vector2(0, -4);
+            label.rectTransform.offsetMax += new Vector2(0, -4);
+        }
+
         input.onValueChanged.AddListener(s => changed(s));
         input.onSelect.AddListener(_ => InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, TypingLock));
         input.onDeselect.AddListener(_ => InputLockManager.RemoveControlLock(TypingLock));

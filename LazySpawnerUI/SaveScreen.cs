@@ -71,6 +71,7 @@ internal class SaveScreen : ConsoleScreen
 
         // Empty, it's named as the hint says.
         nameField = DebugUI.Field(Line(column, Loc("Save_Name")), "", _ => Refresh());
+
         buildings = DebugUI.Tabs(Line(column, Loc("Save_Building")), new[] { Loc("Building_VAB"), Loc("Building_SPH") }, i =>
         {
             facility = i == 0 ? EditorFacility.VAB : EditorFacility.SPH;
