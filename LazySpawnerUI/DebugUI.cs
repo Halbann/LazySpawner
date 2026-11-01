@@ -201,13 +201,10 @@ internal static class DebugUI
         input.text = text;
 
         // Stock centres the letters typed, so the text jumps as ones with a tail or a dot come and go. Lined up by its
-        // baseline it stays put, moved down to look centred.
-        foreach (TMP_Text label in new[] { input.textComponent, (TMP_Text)input.placeholder })
-        {
-            label.alignment = TextAlignmentOptions.Baseline;
-            label.rectTransform.offsetMin += new Vector2(0, -4);
-            label.rectTransform.offsetMax += new Vector2(0, -4);
-        }
+        // baseline it stays put, moved down to look centred. That's done by growing the viewport downwards, since the
+        // input field puts its text's own rectangle back the first time the text changes.
+        input.textComponent.alignment = ((TMP_Text)input.placeholder).alignment = TextAlignmentOptions.Baseline;
+        input.textViewport.offsetMin += new Vector2(0, -8);
 
         input.onValueChanged.AddListener(s => changed(s));
         input.onSelect.AddListener(_ => InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, TypingLock));
