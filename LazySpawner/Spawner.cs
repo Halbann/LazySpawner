@@ -382,7 +382,10 @@ public static class Spawner
                 vessel.SetPhysicsHoldExpiryOverride();
             if ((measured || splashed) && landed && !airborne)
                 Once(GameEvents.onVesselGoOffRails, vessel, () => SettleOnGround(vessel, splashed));
-            Once(GameEvents.onVesselLoaded, vessel, () => DarkenLights(vessel));
+            // Only spawns in load range load before they're seen. A far one would hold its handler until it's approached.
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active != null && Vector3d.Distance(active.GetWorldPos3D(), vessel.GetWorldPos3D()) < vessel.vesselRanges.GetSituationRanges(vessel.situation).load)
+                Once(GameEvents.onVesselLoaded, vessel, () => DarkenLights(vessel));
             GameEvents.onNewVesselCreated.Fire(vessel);
         }
 
@@ -482,8 +485,8 @@ public static class Spawner
         float total = 0;
         foreach (ProtoPartSnapshot part in protoVessel.protoPartSnapshots)
         {
-            float mass = part.mass + (float)part.resources.Sum(r => r.amount * r.definition.density);
-            sum += mass * ((Vector3)part.position + part.rotation * part.partInfo.partPrefab.CoMOffset);
+            float mass = part.mass + (float)part.resources.Sum(r => r.amount * (r.definition?.density ?? 0));
+            sum += mass * ((Vector3)part.position + part.rotation * (part.partInfo?.partPrefab.CoMOffset ?? Vector3.zero));
             total += mass;
         }
 
