@@ -10,6 +10,10 @@
 			<Destination>$(KSPBT_ModRoot)/LazySpawner.version</Destination>
 		</KSPVersionFile>
 	</ItemGroup>
+	<!-- Only a HotReloadKSP that rebinds assemblies to the reloaded backend, and reloads the UI after it, can use this. Stock keeps the UI on the old backend. -->
+	<ItemGroup Condition="'$(Configuration)' == 'Debug'">
+		<AssemblyMetadata Include="HotReload" Value="true" />
+	</ItemGroup>
 	<Target Name="CopyTextFiles" AfterTargets="Build" BeforeTargets="CopyToGame">
 		<Copy SourceFiles="$(RepoRoot)README.md" DestinationFiles="$(KSPBT_ModRoot)Readme.txt" />
 		<Copy SourceFiles="$(RepoRoot)LICENSE.md" DestinationFiles="$(KSPBT_ModRoot)License.txt" />
