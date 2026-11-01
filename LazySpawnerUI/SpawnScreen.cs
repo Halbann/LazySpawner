@@ -41,13 +41,19 @@ internal class SpawnScreen : ConsoleScreen
     // The screen outlives scenes, so it's rebuilt for each, and what depends on the scene is decided as it's built.
     protected void Start()
     {
-        Build(HighLogic.LoadedScene);
-        Update();
-        Fit();
-        GameEvents.onLevelWasLoaded.Add(Build);
+        Rebuild(HighLogic.LoadedScene);
+        GameEvents.onLevelWasLoaded.Add(Rebuild);
     }
 
-    protected void OnDestroy() => GameEvents.onLevelWasLoaded.Remove(Build);
+    protected void OnDestroy() => GameEvents.onLevelWasLoaded.Remove(Rebuild);
+
+    // Bound and fitted as it's built. Fitted before its bindings have hidden what doesn't apply, it measures every panel at once.
+    private void Rebuild(GameScenes scene)
+    {
+        Build(scene);
+        Update();
+        Fit();
+    }
 
     private void Build(GameScenes scene)
     {
