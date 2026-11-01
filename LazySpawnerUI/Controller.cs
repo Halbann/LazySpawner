@@ -62,7 +62,6 @@ public class Controller : MonoBehaviour
 
     // Custom action groups, fired once physics starts.
     public static readonly Setting<KSPActionGroup> spawnGroups = KSPActionGroup.None;
-    public static readonly Setting<bool> showGroups = false;
 
     // Crew.
     public static readonly Setting<CrewMode> crewMode = CrewMode.FillCommand;

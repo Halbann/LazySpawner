@@ -160,9 +160,7 @@ internal class SpawnScreen : ConsoleScreen
             () => Controller.source == Controller.Source.Craft && Controller.SelectedCraft != null), Loc("Craft_Edit_Tooltip"));
         Field(content, Controller.count);
 
-        // Rarely changed, so out of the way until asked for.
-        Toggle(content, Loc("Groups"), Controller.showGroups);
-        ActionGroups(Panel(content, () => Controller.showGroups));
+        ActionGroups(content);
         DebugUI.Spacer(content, 10);
 
         // Where.
@@ -253,7 +251,7 @@ internal class SpawnScreen : ConsoleScreen
         for (int i = 0; i < 10; i++)
         {
             if (i % 5 == 0)
-                line = Line(parent, "");
+                line = i == 0 ? Line(parent, Loc("Groups")) : Line(parent);
             KSPActionGroup group = (KSPActionGroup)((int)KSPActionGroup.Custom01 << i);
             buttons[i] = DebugUI.Button(line, (i + 1).ToString(), () => Controller.spawnGroups.Value ^= group, (DebugUI.ControlWidth - 16) / 5);
         }
