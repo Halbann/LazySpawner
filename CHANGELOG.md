@@ -35,7 +35,7 @@
 
 ### Other
 
-- Changed the default shortcut to Alt+Shift+L from Alt+F.
+- Changed the default shortcut to Alt+P from Alt+F.
 - Fixed the camera mode changing when typing V in a text field.
 - Fixed switched-off lights flashing on as spawned vessels appear.
 - Improved performance and memory use while the Spawn Vessels screen is open.

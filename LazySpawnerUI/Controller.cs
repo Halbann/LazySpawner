@@ -70,8 +70,8 @@ public class Controller : MonoBehaviour
     // Settings, only in settings.cfg.
     public static readonly Setting<bool> useKeybind = true;
     public static readonly Setting<KeyCode> keybindModifier = KeyCode.LeftAlt;
-    public static readonly Setting<KeyCode> keybindSecondModifier = KeyCode.LeftShift;
-    public static readonly Setting<KeyCode> keybind = KeyCode.L;
+    public static readonly Setting<KeyCode> keybindSecondModifier = KeyCode.None;
+    public static readonly Setting<KeyCode> keybind = KeyCode.P;
 
     // Result.
     internal readonly List<ProtoVessel> lastSpawned = new List<ProtoVessel>();

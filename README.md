@@ -2,7 +2,7 @@
 
 KSP mod for spawning vessels individually and en masse in a variety of ways from flight, the tracking station, the KSC or the SPH/VAB.
 
-Press Alt+Shift+L, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
+Press Alt+P, or open the debug console (Alt+F12) and go to Cheats > Spawn Vessels.
 
 - Spawn craft from your game or provide a path to spawn any .craft file. Paths are picked up automatically from the clipboard.
 - Spawn as many craft as you like at once.
