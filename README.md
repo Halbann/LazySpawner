@@ -50,7 +50,7 @@ ProtoVessel rover = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude
 // Spawns airborne with velocity. When the vessel unpacks, a vessel module called SpawnedVessel turns on engines in the first stage and SAS, sets throttle to 100, turns off brakes, and retracts gear.
 ProtoVessel plane = Spawner.Spawn(template, SpawnSituation.Landed(body, latitude, longitude, heading, radarAltitude: 500, airspeed: 100), new CrewSettings(CrewMode.Pilot));
 
-// Toggles custom action groups in the first physics step after the vessel unpacks, or after it flies off if it's airborne.
+// Toggles custom action groups in the first physics step after the vessel unpacks.
 SpawnSituation parked = SpawnSituation.Landed(body, latitude, longitude, heading);
 parked.actionGroups = KSPActionGroup.Custom01 | KSPActionGroup.Custom03;
 Spawner.Spawn(template, parked);
