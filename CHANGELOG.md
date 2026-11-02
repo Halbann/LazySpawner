@@ -43,4 +43,4 @@
 - Added airborne spawns, with `radarAltitude` and `airspeed` on `SpawnSituation.Landed`.
 - Added `SpawnSituation.actionGroups`.
 - Added `groundSearchAltitude` to `SpawnSituation.Landed`.
-- Added `SpawnSituation.easeGravity`, which eases gravity in over 100 physics steps as a landed spawn unpacks, instead of stock's 16.
+- Added `SpawnSituation.easeGravity`, which eases gravity in over 100 physics steps on a landed spawn, rather than 16.
